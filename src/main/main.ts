@@ -300,7 +300,7 @@ async function initServices() {
     mainWindow?.webContents.send('text-copied', info);
   });
 
-  await webServer.start(80);
+  await webServer.start(8080);
   webServerURL = webServer.getURL();
   console.log(`Web server running at ${webServerURL}`);
 }

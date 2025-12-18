@@ -43,17 +43,22 @@ export class WebFileServer extends EventEmitter {
 
   setDownloadPath(p: string) { this.downloadPath = p; }
 
-  async start(preferredPort: number = 80): Promise<number> {
+  async start(preferredPort: number = 8080): Promise<number> {
     this.port = preferredPort;
     return new Promise((resolve, reject) => {
       this.httpServer = http.createServer((req, res) => this.handleRequest(req, res));
       this.httpServer.on('error', (err: NodeJS.ErrnoException) => {
-        if (err.code === 'EADDRINUSE') { this.port++; this.httpServer?.listen(this.port); }
-        else reject(err);
+        if (err.code === 'EADDRINUSE' || err.code === 'EACCES') { 
+          this.port++; 
+          this.httpServer?.listen(this.port); 
+        } else {
+          reject(err);
+        }
       });
-      this.httpServer.listen(this.port, () => {
+      this.httpServer.listen(this.port, '0.0.0.0', () => {
         this.wss = new WebSocketServer({ server: this.httpServer! });
         this.wss.on('connection', (ws, req) => this.handleWebSocket(ws, req));
+        console.log(`Web server started on port ${this.port}`);
         resolve(this.port);
       });
     });
@@ -70,8 +75,7 @@ export class WebFileServer extends EventEmitter {
   }
 
   getURL(): string { 
-    // 端口80时不显示端口号
-    return this.port === 80 ? `http://${this.getLocalIP()}` : `http://${this.getLocalIP()}:${this.port}`; 
+    return `http://${this.getLocalIP()}:${this.port}`; 
   }
 
   // 获取已连接的手机列表
