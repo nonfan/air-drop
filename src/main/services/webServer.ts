@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 interface MobileClient {
   id: string;
   name: string;
+  model: string; // 设备型号
   ws: WebSocket;
   ip: string;
   connectedAt: number;
@@ -75,17 +76,17 @@ export class WebFileServer extends EventEmitter {
 
   // 获取手机可见的设备列表（当前电脑 + 局域网电脑 + 其他手机）
   private getDeviceListForMobile(excludeClientId?: string) {
-    const devices: { id: string; name: string; ip: string; type: 'pc' | 'mobile' }[] = [];
+    const devices: { id: string; name: string; model: string; ip: string; type: 'pc' | 'mobile' }[] = [];
     // 当前电脑（自己）- 放在第一位
-    devices.push({ id: 'host', name: this.deviceName, ip: this.getLocalIP(), type: 'pc' });
+    devices.push({ id: 'host', name: this.deviceName, model: 'Windows', ip: this.getLocalIP(), type: 'pc' });
     // 局域网内的其他电脑（暂时不支持直接发送，仅展示）
     // for (const device of this.lanDevices.values()) {
-    //   devices.push({ id: device.id, name: device.name, ip: device.ip, type: 'pc' });
+    //   devices.push({ id: device.id, name: device.name, model: '', ip: device.ip, type: 'pc' });
     // }
     // 其他已连接的手机
     for (const [id, client] of this.clients.entries()) {
       if (id !== excludeClientId) {
-        devices.push({ id, name: client.name, ip: client.ip, type: 'mobile' });
+        devices.push({ id, name: client.name, model: client.model, ip: client.ip, type: 'mobile' });
       }
     }
     return devices;
@@ -315,7 +316,7 @@ export class WebFileServer extends EventEmitter {
       clientId = uuidv4();
     }
 
-    const client: MobileClient = { id: clientId, name: clientName, ws, ip, connectedAt: Date.now() };
+    const client: MobileClient = { id: clientId, name: clientName, model: '', ws, ip, connectedAt: Date.now() };
     this.clients.set(clientId, client);
 
     // 关闭旧连接（在新连接已设置后再关闭，避免 close 事件删除新记录）
@@ -356,7 +357,8 @@ export class WebFileServer extends EventEmitter {
           if (msg.type === 'set-name') {
             clientName = msg.name || clientName;
             client.name = clientName;
-            this.emit('client-updated', { id: clientId, name: clientName, ip });
+            if (msg.model) client.model = msg.model;
+            this.emit('client-updated', { id: clientId, name: clientName, model: client.model, ip });
             // 名称更新后通知其他手机
             this.broadcastDeviceList();
           } else if (msg.type === 'get-devices') {
@@ -838,6 +840,8 @@ export class WebFileServer extends EventEmitter {
     const textModeEl = document.getElementById('textMode');
     
     let currentMode = 'file';
+    let receivedTexts = []; // 从其他手机收到的文本
+    const deleteAfterCopy = true; // 复制后是否删除记录
     
     // Toast 提示
     const toastEl = document.getElementById('toast');
@@ -966,26 +970,57 @@ export class WebFileServer extends EventEmitter {
     // 检测设备型号
     function getDeviceModel() {
       const ua = navigator.userAgent;
+      // iPhone: 无法从UA获取具体型号，只能获取iOS版本
       if (/iPhone/.test(ua)) {
-        const match = ua.match(/iPhone\\s*(?:OS\\s*)?([\\d_]+)?/);
-        return 'iPhone' + (match ? ' (iOS ' + (match[1] || '').replace(/_/g, '.').split('.').slice(0,2).join('.') + ')' : '');
+        const match = ua.match(/iPhone\\s*OS\\s*([\\d_]+)/);
+        const ver = match ? match[1].replace(/_/g, '.').split('.').slice(0,2).join('.') : '';
+        return 'iPhone' + (ver ? ' · iOS ' + ver : '');
       }
-      if (/iPad/.test(ua)) return 'iPad';
+      if (/iPad/.test(ua)) {
+        const match = ua.match(/CPU\\s*OS\\s*([\\d_]+)/);
+        const ver = match ? match[1].replace(/_/g, '.').split('.').slice(0,2).join('.') : '';
+        return 'iPad' + (ver ? ' · iPadOS ' + ver : '');
+      }
+      // Android: 可以获取设备型号
       if (/Android/.test(ua)) {
         const model = ua.match(/;\\s*([^;)]+)\\s*Build/);
         const ver = ua.match(/Android\\s*([\\d.]+)/);
-        if (model) return model[1].trim() + (ver ? ' (Android ' + ver[1] + ')' : '');
+        if (model) {
+          const modelName = model[1].trim();
+          return modelName + (ver ? ' · Android ' + ver[1] : '');
+        }
         return 'Android' + (ver ? ' ' + ver[1] : '');
       }
-      if (/HarmonyOS/.test(ua)) return '华为 (HarmonyOS)';
+      if (/HarmonyOS/.test(ua)) {
+        const model = ua.match(/;\\s*([^;)]+)\\s*Build/);
+        if (model) return model[1].trim() + ' · HarmonyOS';
+        return 'HarmonyOS';
+      }
       return navigator.platform || '未知设备';
+    }
+    
+    function getDefaultName() {
+      const ua = navigator.userAgent;
+      if (/iPhone/.test(ua)) return 'iPhone';
+      if (/iPad/.test(ua)) return 'iPad';
+      if (/Android/.test(ua)) {
+        const model = ua.match(/;\\s*([^;)]+)\\s*Build/);
+        if (model) {
+          // 提取品牌名作为默认名称
+          const parts = model[1].trim().split(' ');
+          return parts[0] || 'Android';
+        }
+        return 'Android';
+      }
+      if (/HarmonyOS/.test(ua)) return '华为';
+      return '我的手机';
     }
     
     // 初始化设备信息
     const deviceModel = getDeviceModel();
     myModelEl.textContent = deviceModel;
     if (!myName) {
-      myName = deviceModel.split(' ')[0] || '我的手机';
+      myName = getDefaultName();
     }
     myNameEl.textContent = myName;
     
@@ -1006,7 +1041,7 @@ export class WebFileServer extends EventEmitter {
         myNameEl.textContent = myName;
         localStorage.setItem('airdrop_name', myName);
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'set-name', name: myName }));
+          ws.send(JSON.stringify({ type: 'set-name', name: myName, model: deviceModel }));
         }
       }
       hideEditModal();
@@ -1020,8 +1055,8 @@ export class WebFileServer extends EventEmitter {
       ws = new WebSocket(protocol + '//' + location.host);
       
       ws.onopen = () => {
-        // 连接后发送设备名称（直接使用完整型号信息）
-        ws.send(JSON.stringify({ type: 'set-name', name: deviceModel }));
+        // 连接后发送设备名称和型号
+        ws.send(JSON.stringify({ type: 'set-name', name: myName, model: deviceModel }));
       };
       
       ws.onmessage = (e) => {
@@ -1047,8 +1082,15 @@ export class WebFileServer extends EventEmitter {
         } else if (msg.type === 'text-from-mobile') {
           // 收到其他手机发来的文本
           showToast('收到来自 ' + msg.from + ' 的文本', 'success');
-          // 可以显示在文本列表中或自动复制
           if (msg.text) {
+            // 添加到本地接收列表
+            const textId = 'local_' + Date.now();
+            receivedTexts.unshift({ id: textId, text: msg.text, from: msg.from });
+            // 保留最近20条
+            if (receivedTexts.length > 20) receivedTexts = receivedTexts.slice(0, 20);
+            // 更新显示
+            updateTextList();
+            // 自动复制
             copyTextToClipboard(msg.text);
           }
         } else if (msg.type === 'text-received') {
@@ -1064,7 +1106,7 @@ export class WebFileServer extends EventEmitter {
     }
     connect();
     
-    function copyText(id, text, itemEl) {
+    function copyText(id, text, itemEl, isServer = true) {
       // 同步执行复制，确保在用户手势上下文中
       let success = false;
       
@@ -1086,7 +1128,7 @@ export class WebFileServer extends EventEmitter {
       // 方法2: 如果方法1失败，尝试 Clipboard API
       if (!success && navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => {
-          showCopySuccess(id, itemEl);
+          showCopySuccess(id, itemEl, isServer);
         }).catch(() => {
           showToast('复制失败，请长按文本手动复制', 'error');
         });
@@ -1094,13 +1136,13 @@ export class WebFileServer extends EventEmitter {
       }
       
       if (success) {
-        showCopySuccess(id, itemEl);
+        showCopySuccess(id, itemEl, isServer);
       } else {
         showToast('复制失败，请长按文本手动复制', 'error');
       }
     }
     
-    function showCopySuccess(id, itemEl) {
+    function showCopySuccess(id, itemEl, isServer = true) {
       if (itemEl) {
         itemEl.classList.add('copied');
         const icon = itemEl.querySelector('.text-action-icon');
@@ -1116,8 +1158,18 @@ export class WebFileServer extends EventEmitter {
           }
         }, 1500);
       }
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'copy-text', id }));
+      
+      if (deleteAfterCopy) {
+        if (isServer) {
+          // 服务端文本：通知服务器删除
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'copy-text', id }));
+          }
+        } else {
+          // 本地文本：从本地列表删除
+          receivedTexts = receivedTexts.filter(t => t.id !== id);
+          updateTextList();
+        }
       }
       showToast('已复制到剪贴板', 'success');
     }
@@ -1133,22 +1185,33 @@ export class WebFileServer extends EventEmitter {
         downloadSection.classList.remove('show');
       }
       
-      // 更新文本列表
-      if (texts && texts.length > 0) {
+      // 更新文本列表（来自电脑的分享文本）
+      window._serverTexts = texts || [];
+      updateTextList();
+    }
+    
+    function updateTextList() {
+      const serverTexts = window._serverTexts || [];
+      const allTexts = [...serverTexts.map(t => ({ ...t, from: deviceNameEl.textContent || '电脑', isServer: true })), ...receivedTexts.map(t => ({ ...t, isServer: false }))];
+      
+      if (allTexts.length > 0) {
         textSection.style.display = 'block';
-        const pcName = deviceNameEl.textContent || '电脑';
         // 存储文本数据
         window._sharedTexts = {};
-        texts.forEach(t => { window._sharedTexts[t.id] = t.text; });
-        textList.innerHTML = texts.map(t => 
-          '<div class="text-item" data-id="' + t.id + '"><div class="text-from"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>' + pcName + '</div><div class="text-preview">' + t.text + '</div><span class="text-action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></span></div>'
-        ).join('');
+        allTexts.forEach(t => { window._sharedTexts[t.id] = t.text; });
+        textList.innerHTML = allTexts.map(t => {
+          const icon = t.isServer 
+            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>';
+          return '<div class="text-item" data-id="' + t.id + '" data-server="' + t.isServer + '"><div class="text-from">' + icon + t.from + '</div><div class="text-preview">' + t.text + '</div><span class="text-action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></span></div>';
+        }).join('');
         // 绑定点击事件 - 点击整行复制
         textList.querySelectorAll('.text-item').forEach(item => {
           item.onclick = function() {
             const id = this.dataset.id;
             const text = window._sharedTexts[id];
-            if (text) copyText(id, text, this);
+            const isServer = this.dataset.server === 'true';
+            if (text) copyText(id, text, this, isServer);
           };
         });
       } else {

@@ -70,9 +70,9 @@ declare global {
       unshareTextWeb: (textId: string) => Promise<void>;
       getClipboardText: () => Promise<string>;
       getClipboardFiles: () => Promise<{ name: string; size: number; path: string }[]>;
-      onMobileConnected: (callback: (client: { id: string; name: string; ip: string }) => void) => void;
-      onMobileDisconnected: (callback: (client: { id: string; name: string; ip: string }) => void) => void;
-      onMobileUpdated: (callback: (client: { id: string; name: string; ip: string }) => void) => void;
+      onMobileConnected: (callback: (client: { id: string; name: string; model?: string; ip: string }) => void) => void;
+      onMobileDisconnected: (callback: (client: { id: string; name: string; model?: string; ip: string }) => void) => void;
+      onMobileUpdated: (callback: (client: { id: string; name: string; model?: string; ip: string }) => void) => void;
       onWebUploadStart: (callback: (info: { name: string; size: number }) => void) => void;
       onWebUploadProgress: (callback: (progress: { name: string; percent: number }) => void) => void;
       onWebUploadComplete: (callback: (info: { name: string; size: number }) => void) => void;

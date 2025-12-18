@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 
-interface Device { id: string; name: string; ip: string; port?: number; type: 'pc' | 'mobile'; }
+interface Device { id: string; name: string; model?: string; ip: string; port?: number; type: 'pc' | 'mobile'; }
 interface FileTransferInfo { transferId: string; senderName: string; files: { name: string; size: number }[]; totalSize: number; }
 interface Settings { deviceName: string; downloadPath: string; autoAccept: boolean; showNotifications: boolean; theme: 'system' | 'dark' | 'light'; autoLaunch: boolean; }
 interface TransferProgress { percent: number; currentFile: string; }
@@ -111,7 +111,7 @@ function App() {
       setSharedFiles(prev => prev.filter(f => f.targetId !== m.id));
     });
     window.windrop.onMobileUpdated((m) => {
-      setDevices(prev => prev.map(x => x.id === m.id ? { ...x, name: m.name } : x));
+      setDevices(prev => prev.map(x => x.id === m.id ? { ...x, name: m.name, model: m.model } : x));
     });
     
     window.windrop.onIncomingFile(setIncomingTransfer);
@@ -500,7 +500,7 @@ function App() {
                         </div>
                         <div className="device-details">
                           <span className="device-name">{d.name}</span>
-                          <span className="device-ip">{d.ip}</span>
+                          <span className="device-ip">{d.model || d.ip}</span>
                         </div>
                         {selectedDevice === d.id && (
                           <div className="device-actions">

@@ -267,19 +267,19 @@ async function initServices() {
   });
 
   // 手机连接/断开事件
-  webServer.on('client-connected', (client: { id: string; name: string; ip: string }) => {
+  webServer.on('client-connected', (client: { id: string; name: string; model?: string; ip: string }) => {
     mainWindow?.webContents.send('mobile-connected', client);
     if (store.get('showNotifications')) {
       new Notification({ title: APP_CONFIG.APP_NAME, body: `手机已连接: ${client.name}` }).show();
     }
   });
 
-  webServer.on('client-disconnected', (client: { id: string; name: string; ip: string }) => {
+  webServer.on('client-disconnected', (client: { id: string; name: string; model?: string; ip: string }) => {
     mainWindow?.webContents.send('mobile-disconnected', client);
   });
 
   // 手机更新名称
-  webServer.on('client-updated', (client: { id: string; name: string; ip: string }) => {
+  webServer.on('client-updated', (client: { id: string; name: string; model?: string; ip: string }) => {
     mainWindow?.webContents.send('mobile-updated', client);
   });
 
