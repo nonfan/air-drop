@@ -4,7 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 interface Device { id: string; name: string; ip: string; port?: number; type: 'pc' | 'mobile'; }
 interface FileTransferInfo { transferId: string; senderName: string; files: { name: string; size: number }[]; totalSize: number; }
-interface Settings { deviceName: string; downloadPath: string; autoAccept: boolean; showNotifications: boolean; theme: 'system' | 'dark' | 'light'; }
+interface Settings { deviceName: string; downloadPath: string; autoAccept: boolean; showNotifications: boolean; theme: 'system' | 'dark' | 'light'; autoLaunch: boolean; }
 interface TransferProgress { percent: number; currentFile: string; }
 interface TransferRecord { id: string; fileName: string; filePath: string; size: number; from: string; timestamp: number; type: 'received' | 'sent'; }
 interface FileItem { name: string; size: number; path: string; }
@@ -349,6 +349,10 @@ function App() {
                 <div className="setting-item">
                   <div className="setting-label"><span className="setting-title">系统通知</span><span className="setting-desc">收到文件时显示通知</span></div>
                   <button className={`toggle ${settings?.showNotifications ? 'on' : ''}`} onClick={() => handleSaveSettings({ showNotifications: !settings?.showNotifications })}><span className="toggle-thumb"></span></button>
+                </div>
+                <div className="setting-item">
+                  <div className="setting-label"><span className="setting-title">开机自启</span><span className="setting-desc">系统启动时自动运行</span></div>
+                  <button className={`toggle ${settings?.autoLaunch ? 'on' : ''}`} onClick={() => handleSaveSettings({ autoLaunch: !settings?.autoLaunch })}><span className="toggle-thumb"></span></button>
                 </div>
                 <div className="setting-item">
                   <div className="setting-label"><span className="setting-title">主题</span><span className="setting-desc">切换深色或浅色主题</span></div>

@@ -31,6 +31,7 @@ interface StoreSchema {
   autoAccept: boolean;
   showNotifications: boolean;
   theme: 'system' | 'dark' | 'light';
+  autoLaunch: boolean;
   transferHistory: TransferRecord[];
   textHistory: TextRecord[];
 }
@@ -42,6 +43,7 @@ const store = new Store<StoreSchema>({
     autoAccept: false,
     showNotifications: true,
     theme: 'system',
+    autoLaunch: false,
     transferHistory: [],
     textHistory: []
   }
@@ -76,6 +78,7 @@ function addTextRecord(record: Omit<TextRecord, 'id' | 'timestamp'>) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let autoLaunchTimer: NodeJS.Timeout | null = null;
 let tray: Tray | null = null;
 let discovery: DeviceDiscovery | null = null;
 let transferServer: FileTransferServer | null = null;
@@ -325,7 +328,8 @@ ipcMain.handle('get-settings', () => ({
   downloadPath: store.get('downloadPath'),
   autoAccept: store.get('autoAccept'),
   showNotifications: store.get('showNotifications'),
-  theme: store.get('theme') || 'dark'
+  theme: store.get('theme') || 'system',
+  autoLaunch: store.get('autoLaunch') || false
 }));
 
 ipcMain.handle('set-settings', (_e, settings: Partial<StoreSchema>) => {
@@ -337,6 +341,20 @@ ipcMain.handle('set-settings', (_e, settings: Partial<StoreSchema>) => {
   if (typeof settings.autoAccept === 'boolean') store.set('autoAccept', settings.autoAccept);
   if (typeof settings.showNotifications === 'boolean') store.set('showNotifications', settings.showNotifications);
   if (settings.theme) store.set('theme', settings.theme);
+  if (typeof settings.autoLaunch === 'boolean') {
+    store.set('autoLaunch', settings.autoLaunch);
+    // 防抖处理，避免快速切换时卡顿
+    if (autoLaunchTimer) clearTimeout(autoLaunchTimer);
+    const autoLaunchValue = settings.autoLaunch;
+    autoLaunchTimer = setTimeout(() => {
+      try {
+        app.setLoginItemSettings({ openAtLogin: autoLaunchValue });
+      } catch (e) {
+        console.error('Failed to set login item:', e);
+      }
+      autoLaunchTimer = null;
+    }, 300);
+  }
 });
 
 ipcMain.handle('select-files', async () => {

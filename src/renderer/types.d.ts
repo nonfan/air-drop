@@ -18,6 +18,7 @@ export interface Settings {
   autoAccept: boolean;
   showNotifications: boolean;
   theme: 'system' | 'dark' | 'light';
+  autoLaunch: boolean;
 }
 
 export interface TransferProgress {
