@@ -1,6 +1,6 @@
 {
   "name": "airdrop",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "跨平台局域网文件传输工具",
   "main": "dist/main/main.js",
   "scripts": {
@@ -64,8 +64,7 @@
         "nsis",
         "portable"
       ],
-      "icon": "public/icon.ico",
-      "signAndEditExecutable": false
+      "icon": "public/icon.ico"
     },
     "nsis": {
       "oneClick": false,
