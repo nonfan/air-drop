@@ -497,7 +497,8 @@ ipcMain.handle('download-update', async () => {
 });
 
 ipcMain.handle('install-update', () => {
-  autoUpdater.quitAndInstall();
+  // 强制退出并安装，不等待应用关闭
+  autoUpdater.quitAndInstall(false, true);
 });
 
 // 配置自动更新
