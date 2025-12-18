@@ -491,12 +491,12 @@ export class WebFileServer extends EventEmitter {
     
     .header { text-align: center; padding: 20px 0 16px; margin-bottom: 20px; }
     .logo { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; }
-    .logo svg { width: 28px; height: 28px; color: #3b82f6; filter: drop-shadow(0 0 8px rgba(59,130,246,0.4)); }
+    .logo svg { width: 28px; height: 28px; color: var(--accent); filter: drop-shadow(0 0 8px rgba(59,130,246,0.4)); }
     h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
     .device-info { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
     .device-info-left { display: flex; align-items: center; gap: 8px; }
     .device-info-right { display: flex; align-items: center; }
-    .device-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: #60a5fa; }
+    .device-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--accent-light); }
     .device-badge svg { width: 14px; height: 14px; }
     .status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #22c55e; }
     .status-badge::before { content: ''; width: 6px; height: 6px; background: #22c55e; border-radius: 50%; animation: pulse 2s infinite; }
@@ -505,7 +505,7 @@ export class WebFileServer extends EventEmitter {
     .my-device { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 16px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
     .my-avatar { width: 40px; height: 40px; background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
     .my-info { flex: 1; }
-    .my-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+    .my-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; color: var(--text-primary); }
     .my-model { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
     .edit-btn { background: none; border: none; color: var(--text-muted); padding: 8px; cursor: pointer; border-radius: 8px; }
     .edit-btn:active { background: var(--bg-card); }
@@ -526,7 +526,7 @@ export class WebFileServer extends EventEmitter {
     .drop-zone { min-height: 140px; padding: 24px 20px; text-align: center; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .drop-zone.active { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); }
     .drop-icon { width: 48px; height: 48px; margin: 0 auto 12px; background: rgba(59,130,246,0.1); border-radius: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .drop-icon svg { width: 22px; height: 22px; color: #3b82f6; }
+    .drop-icon svg { width: 22px; height: 22px; color: var(--accent); }
     .drop-text { color: var(--text-muted); font-size: 13px; margin-bottom: 8px; }
     .drop-hint { font-size: 11px; color: var(--text-muted); opacity: 0.7; }
     
@@ -541,13 +541,13 @@ export class WebFileServer extends EventEmitter {
     .file-item { padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-card); }
     .file-item:last-child { border-bottom: none; }
     .file-icon { width: 32px; height: 32px; min-width: 32px; background: rgba(59,130,246,0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .file-icon svg { width: 16px; height: 16px; color: #3b82f6; flex-shrink: 0; }
+    .file-icon svg { width: 16px; height: 16px; color: var(--accent); flex-shrink: 0; }
     .file-info { flex: 1; min-width: 0; overflow: hidden; }
-    .file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; color: var(--text-primary); }
     .file-size { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: block; }
     .file-remove { background: none; border: none; color: var(--text-muted); width: 28px; height: 28px; min-width: 28px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .file-remove:active { background: rgba(239,68,68,0.1); color: #ef4444; }
-    .btn-add-more { background: none; border: none; color: #3b82f6; font-size: 13px; font-weight: 500; cursor: pointer; padding: 10px; width: 100%; text-align: left; }
+    .btn-add-more { background: none; border: none; color: var(--accent); font-size: 13px; font-weight: 500; cursor: pointer; padding: 10px; width: 100%; text-align: left; }
     .btn-add-more:active { background: rgba(59,130,246,0.1); }
     .progress-bar { height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 6px; overflow: hidden; }
     .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa); transition: width 0.2s; }
@@ -580,9 +580,10 @@ export class WebFileServer extends EventEmitter {
     .device-avatar.pc { background: rgba(59,130,246,0.15); color: #60a5fa; }
     .device-avatar.mobile { background: rgba(168,85,247,0.15); color: #c084fc; }
     .device-item-info { text-align: center; }
-    .device-item-name { font-size: 12px; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; }
-    .device-item-type { font-size: 9px; color: #6b6b74; display: none; }
-    .device-check { position: absolute; top: 6px; right: 6px; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(0,0,0,0.3); }
+    .device-item-name { font-size: 12px; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; color: var(--text-primary); }
+    .device-item-type { font-size: 9px; color: var(--text-muted); display: none; }
+    .device-check { position: absolute; top: 6px; right: 6px; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--border-card); display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(0,0,0,0.2); }
+    [data-theme="light"] .device-check { background: rgba(0,0,0,0.05); }
     .device-check svg { width: 10px; height: 10px; display: none; }
     .device-item.selected .device-check { background: #3b82f6; border-color: #3b82f6; }
     .device-item.selected .device-check svg { display: block; color: #fff; }
@@ -623,9 +624,9 @@ export class WebFileServer extends EventEmitter {
     .text-item:active { background: rgba(139,92,246,0.08); }
     .text-item.copied { background: rgba(34,197,94,0.08); }
     .text-item + .text-item { border-top: 1px solid var(--border-card); }
-    .text-from { font-size: 11px; color: #6b7280; margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
+    .text-from { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
     .text-from svg { width: 12px; height: 12px; }
-    .text-preview { font-size: 14px; line-height: 1.6; color: #e5e5e5; word-break: break-all; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .text-preview { font-size: 14px; line-height: 1.6; color: var(--text-primary); word-break: break-all; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .text-action-icon { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: rgba(139,92,246,0.15); border-radius: 8px; color: #a78bfa; transition: all 0.15s; }
     .text-action-icon.success { background: rgba(34,197,94,0.15); color: #22c55e; }
     .text-action-icon svg { width: 16px; height: 16px; }
