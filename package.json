@@ -41,6 +41,7 @@
     "typescript": "^5.3.3",
     "vite": "^5.0.10"
   },
+  "author": "WinDrop",
   "build": {
     "appId": "com.windrop.app",
     "productName": "WinDrop",
@@ -48,8 +49,15 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis",
-      "icon": "public/icon.ico"
+      "target": ["nsis", "portable"],
+      "icon": "public/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }
