@@ -463,6 +463,7 @@ export class WebFileServer extends EventEmitter {
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0a0a0c">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Cpath fill='%233b82f6' d='M841.8 456.4c2.4-12.7 3.6-25.7 3.6-38.7 0-117.5-95.6-213.2-213.1-213.2-65.3 0-125.4 29.9-165.2 78.6-26.6-13.6-56.3-20.9-86.9-20.9-92.2 0-169.4 65.6-187.3 152.7-76.7 33.1-129 109.8-129 195.8 0 117.5 95.6 213.1 213.2 213.1h490.6c105.4 0 191.2-85.8 191.2-191.2-0.1-79.1-48.5-147.2-117.1-176.2z'/%3E%3C/svg%3E">
   <title>Airdrop</title>
   <style>
     :root {
@@ -503,7 +504,8 @@ export class WebFileServer extends EventEmitter {
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     
     .my-device { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 16px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
-    .my-avatar { width: 40px; height: 40px; background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    .my-avatar { width: 40px; height: 40px; background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; }
+    .my-avatar svg { width: 20px; height: 20px; }
     .my-info { flex: 1; }
     .my-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; color: var(--text-primary); }
     .my-model { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
@@ -667,7 +669,7 @@ export class WebFileServer extends EventEmitter {
     </div>
     
     <div class="my-device">
-      <div class="my-avatar">📱</div>
+      <div class="my-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg></div>
       <div class="my-info">
         <div class="my-name"><span id="myName">我的手机</span></div>
         <div class="my-model" id="myModel">检测中...</div>
