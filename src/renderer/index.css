@@ -929,6 +929,14 @@ body {
   color: var(--text-muted);
 }
 
+.drop-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-top: -4px;
+  margin-bottom: 8px;
+}
+
 /* File List */
 .file-list {
   width: 100%;

@@ -503,16 +503,23 @@ export class WebFileServer extends EventEmitter {
     .drop-hint { font-size: 11px; color: #4b4b54; }
     
     .file-input { display: none; }
-    .file-list { border-top: 1px solid rgba(255,255,255,0.06); }
-    .file-item { padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .file-card { overflow: visible; }
+    .file-list-container { padding: 12px 16px; }
+    .file-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 13px; color: #a0a0a8; }
+    .btn-clear-files { background: none; border: none; color: #ef4444; font-size: 13px; font-weight: 500; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+    .btn-clear-files:active { background: rgba(239,68,68,0.1); }
+    .file-list { background: rgba(0,0,0,0.2); border-radius: 12px; max-height: 200px; overflow-y: auto; }
+    .file-item { padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.04); }
     .file-item:last-child { border-bottom: none; }
-    .file-icon { width: 36px; height: 36px; min-width: 36px; background: rgba(59,130,246,0.1); border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .file-icon svg { width: 18px; height: 18px; color: #3b82f6; flex-shrink: 0; }
+    .file-icon { width: 32px; height: 32px; min-width: 32px; background: rgba(59,130,246,0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .file-icon svg { width: 16px; height: 16px; color: #3b82f6; flex-shrink: 0; }
     .file-info { flex: 1; min-width: 0; overflow: hidden; }
     .file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
     .file-size { font-size: 11px; color: #6b6b74; margin-top: 2px; display: block; }
     .file-remove { background: none; border: none; color: #6b6b74; width: 28px; height: 28px; min-width: 28px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .file-remove:active { background: rgba(239,68,68,0.1); color: #ef4444; }
+    .btn-add-more { background: none; border: none; color: #3b82f6; font-size: 13px; font-weight: 500; cursor: pointer; padding: 10px; width: 100%; text-align: left; }
+    .btn-add-more:active { background: rgba(59,130,246,0.1); }
     .progress-bar { height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 6px; overflow: hidden; }
     .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa); transition: width 0.2s; }
     
@@ -644,14 +651,21 @@ export class WebFileServer extends EventEmitter {
       </div>
       
       <div id="fileMode">
-        <div class="card">
+        <div class="card file-card">
           <div class="drop-zone" id="dropZone">
             <div class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg></div>
-            <div class="drop-text">点击选择文件</div>
-            <div class="drop-hint">支持多选</div>
+            <div class="drop-text">点击或拖放文件</div>
+            <div class="drop-hint">支持多选和粘贴</div>
+          </div>
+          <div class="file-list-container" id="fileListContainer" style="display:none;">
+            <div class="file-list-header">
+              <span>已选择 <span id="fileCount">0</span> 个文件</span>
+              <button class="btn-clear-files" onclick="clearFiles()">清空</button>
+            </div>
+            <div class="file-list" id="fileList"></div>
+            <button class="btn-add-more" onclick="document.getElementById('fileInput').click()">+ 添加更多</button>
           </div>
           <input type="file" class="file-input" id="fileInput" multiple>
-          <div class="file-list" id="fileList"></div>
         </div>
         <button class="btn btn-primary" id="uploadBtn" disabled style="margin-top:12px;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
@@ -1068,19 +1082,45 @@ export class WebFileServer extends EventEmitter {
     dropZone.ondrop = (e) => { e.preventDefault(); dropZone.classList.remove('active'); addFiles(e.dataTransfer.files); };
     fileInput.onchange = () => addFiles(fileInput.files);
     
+    // 全局粘贴支持
+    document.addEventListener('paste', (e) => {
+      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files = [];
+      for (const item of items) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        addFiles(files);
+        switchMode('file');
+      }
+    });
+    
     function addFiles(files) {
       for (const f of files) if (!selectedFiles.find(sf => sf.name === f.name && sf.size === f.size)) selectedFiles.push(f);
       renderFiles();
     }
     
     function removeFile(i) { selectedFiles.splice(i, 1); renderFiles(); }
+    function clearFiles() { selectedFiles = []; renderFiles(); }
+    
+    const fileListContainer = document.getElementById('fileListContainer');
+    const fileCountEl = document.getElementById('fileCount');
     
     function renderFiles() {
       if (selectedFiles.length > 0) {
         dropZone.style.display = 'none';
+        fileListContainer.style.display = 'block';
+        fileCountEl.textContent = selectedFiles.length;
         fileList.innerHTML = selectedFiles.map((f, i) => '<div class="file-item" id="file-' + i + '"><div class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg></div><div class="file-info"><div class="file-name">' + f.name + '</div><div class="file-size">' + formatSize(f.size) + '</div><div class="progress-bar" style="display:none;"><div class="progress-fill" style="width:0%"></div></div></div><button class="file-remove" onclick="removeFile(' + i + ')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>').join('');
       } else {
-        dropZone.style.display = 'block';
+        dropZone.style.display = 'flex';
+        fileListContainer.style.display = 'none';
         fileList.innerHTML = '';
       }
       uploadBtn.disabled = selectedFiles.length === 0;

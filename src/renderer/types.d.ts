@@ -67,6 +67,7 @@ declare global {
       shareTextWeb: (text: string, targetClientId?: string) => Promise<string>;
       unshareTextWeb: (textId: string) => Promise<void>;
       getClipboardText: () => Promise<string>;
+      getClipboardFiles: () => Promise<{ name: string; size: number; path: string }[]>;
       onMobileConnected: (callback: (client: { id: string; name: string; ip: string }) => void) => void;
       onMobileDisconnected: (callback: (client: { id: string; name: string; ip: string }) => void) => void;
       onMobileUpdated: (callback: (client: { id: string; name: string; ip: string }) => void) => void;

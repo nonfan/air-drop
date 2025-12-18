@@ -135,6 +135,22 @@ function App() {
       setUpdateStatus('error');
       setUpdateInfo({ error });
     });
+    
+    // 全局粘贴事件
+    const handlePaste = async (e: ClipboardEvent) => {
+      // 如果焦点在输入框，不处理
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      e.preventDefault();
+      const files = await window.windrop.getClipboardFiles();
+      if (files.length > 0) {
+        setSelectedFiles(prev => [...prev, ...files]);
+        setSendMode('file');
+      }
+    };
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
   }, []);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
@@ -374,7 +390,8 @@ function App() {
                   {selectedFiles.length === 0 ? (
                     <div className="drop-placeholder">
                       <div className="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg></div>
-                      <p className="drop-text">拖放文件到此处</p>
+                      <p className="drop-text">拖放或粘贴文件</p>
+                      <p className="drop-hint">支持 Ctrl+V 粘贴图片和文件</p>
                       <button className="btn-outline" onClick={handleSelectFiles}>选择文件</button>
                     </div>
                   ) : (

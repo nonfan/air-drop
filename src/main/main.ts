@@ -407,6 +407,44 @@ ipcMain.handle('get-clipboard-text', () => {
   return clipboard.readText();
 });
 
+// 读取剪贴板中的文件
+ipcMain.handle('get-clipboard-files', async () => {
+  // Windows: 读取剪贴板中的文件路径
+  const formats = clipboard.availableFormats();
+  
+  // 检查是否有图片
+  if (formats.includes('image/png') || formats.includes('image/jpeg')) {
+    const image = clipboard.readImage();
+    if (!image.isEmpty()) {
+      // 保存图片到临时文件
+      const tempDir = app.getPath('temp');
+      const fileName = `clipboard_${Date.now()}.png`;
+      const filePath = path.join(tempDir, fileName);
+      fs.writeFileSync(filePath, image.toPNG());
+      return [{ name: fileName, size: fs.statSync(filePath).size, path: filePath }];
+    }
+  }
+  
+  // 检查是否有文件路径 (Windows)
+  if (process.platform === 'win32') {
+    // 尝试读取文件列表
+    const text = clipboard.readBuffer('FileNameW');
+    if (text && text.length > 0) {
+      // Windows 文件路径是 UTF-16LE 编码，以 null 分隔
+      const paths = text.toString('utf16le').split('\0').filter(p => p && fs.existsSync(p));
+      if (paths.length > 0) {
+        return paths.map(p => ({
+          name: path.basename(p),
+          size: fs.statSync(p).size,
+          path: p
+        }));
+      }
+    }
+  }
+  
+  return [];
+});
+
 // Transfer history IPC
 ipcMain.handle('get-transfer-history', () => store.get('transferHistory') || []);
 ipcMain.handle('clear-transfer-history', () => {

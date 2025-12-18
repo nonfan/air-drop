@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld('windrop', {
   shareTextWeb: (text: string, targetClientId?: string) => ipcRenderer.invoke('share-text-web', text, targetClientId),
   unshareTextWeb: (textId: string) => ipcRenderer.invoke('unshare-text-web', textId),
   getClipboardText: () => ipcRenderer.invoke('get-clipboard-text'),
+  getClipboardFiles: () => ipcRenderer.invoke('get-clipboard-files'),
   
   // Mobile client events
   onMobileConnected: (callback: (client: { id: string; name: string; ip: string }) => void) => {
