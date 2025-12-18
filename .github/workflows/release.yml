@@ -23,19 +23,23 @@ jobs:
           node-version: '20'
           cache: 'npm'
       
-      - name: Generate Changelog
+      - name: Extract Changelog
         id: changelog
         run: |
-          $prev = git describe --tags --abbrev=0 HEAD^ 2>$null
-          if ($prev) {
-            $log = git log "$prev..HEAD" --pretty=format:"- %s" --no-merges
+          $version = "${{ github.ref_name }}"
+          $content = Get-Content -Path "CHANGELOG.md" -Raw
+          # 提取当前版本的更新内容
+          $pattern = "(?s)## $version.*?(?=\n---|\n## v|$)"
+          if ($content -match $pattern) {
+            $notes = $matches[0]
+            # 移除版本标题行，只保留内容
+            $notes = $notes -replace "^## $version.*?\n", ""
+            $notes = $notes.Trim()
           } else {
-            $log = git log --pretty=format:"- %s" --no-merges -10
+            $notes = "Release $version"
           }
-          $log = $log -replace '"', '\"'
-          $log = $log -replace "`r`n", "\n"
-          $log = $log -replace "`n", "\n"
-          echo "changelog=$log" >> $env:GITHUB_OUTPUT
+          # 保存到文件避免转义问题
+          $notes | Out-File -FilePath "release_notes.md" -Encoding utf8
         shell: pwsh
       
       - name: Install dependencies
@@ -53,9 +57,6 @@ jobs:
       - name: Update Release Notes
         uses: softprops/action-gh-release@v1
         with:
-          body: |
-            ## 更新内容
-            ${{ steps.changelog.outputs.changelog }}
-          append_body: true
+          body_path: release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
