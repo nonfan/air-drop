@@ -1,6 +1,6 @@
 {
   "name": "airdrop",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "跨平台局域网文件传输工具",
   "main": "dist/main/main.js",
   "scripts": {
@@ -49,6 +49,10 @@
     "directories": {
       "output": "release"
     },
+    "files": [
+      "dist/**/*",
+      "public/**/*"
+    ],
     "extraResources": [
       {
         "from": "public/icon.ico",

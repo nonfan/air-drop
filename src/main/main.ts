@@ -134,7 +134,9 @@ async function createWindow() {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, '../../public/icon.ico');
+  const iconPath = app.isPackaged 
+    ? path.join(process.resourcesPath, 'icon.ico')
+    : path.join(__dirname, '../../public/icon.ico');
   const icon = nativeImage.createFromPath(iconPath);
   tray = new Tray(icon.resize({ width: 16, height: 16 }));
   
