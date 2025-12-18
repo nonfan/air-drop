@@ -333,7 +333,7 @@ export class WebFileServer extends EventEmitter {
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0a0a0c">
-  <title>WinDrop</title>
+  <title>Airdrop</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif; background: linear-gradient(180deg, #0a0a0c 0%, #12121a 100%); min-height: 100vh; color: #fff; padding: 16px; padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: max(16px, env(safe-area-inset-bottom)); }
@@ -428,22 +428,30 @@ export class WebFileServer extends EventEmitter {
     .text-count { font-size: 11px; color: #4b4b54; }
     
     .text-list-card { min-height: auto; }
-    .text-item { position: relative; padding: 14px 16px; padding-right: 56px; }
+    .text-item { position: relative; padding: 14px 16px; padding-right: 56px; cursor: pointer; transition: background 0.15s; }
+    .text-item:active { background: rgba(139,92,246,0.08); }
+    .text-item.copied { background: rgba(34,197,94,0.08); }
     .text-item + .text-item { border-top: 1px solid rgba(255,255,255,0.04); }
     .text-from { font-size: 11px; color: #6b7280; margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
     .text-from svg { width: 12px; height: 12px; }
-    .text-preview { font-size: 14px; line-height: 1.6; color: #e5e5e5; word-break: break-all; white-space: pre-wrap; }
-    .btn-copy { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; background: rgba(139,92,246,0.15); border: none; border-radius: 8px; color: #a78bfa; cursor: pointer; transition: all 0.15s; }
-    .btn-copy:active { background: rgba(139,92,246,0.3); transform: scale(0.95); }
-    .btn-copy svg { width: 16px; height: 16px; }
+    .text-preview { font-size: 14px; line-height: 1.6; color: #e5e5e5; word-break: break-all; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .text-action-icon { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: rgba(139,92,246,0.15); border-radius: 8px; color: #a78bfa; transition: all 0.15s; }
+    .text-action-icon.success { background: rgba(34,197,94,0.15); color: #22c55e; }
+    .text-action-icon svg { width: 16px; height: 16px; }
+    
+    .toast { position: fixed; top: max(20px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%) translateY(-100px); background: rgba(255,255,255,0.98); color: #333; padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 500; z-index: 1000; opacity: 0; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 8px; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .toast::before { content: ''; width: 18px; height: 18px; border-radius: 50%; background: #3b82f6; flex-shrink: 0; }
+    .toast.success::before { background: #10b981; }
+    .toast.error::before { background: #ef4444; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
       <div class="logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-        <h1>WinDrop</h1>
+        <svg viewBox="0 0 1024 1024" fill="#3b82f6"><path d="M841.8 456.4c2.4-12.7 3.6-25.7 3.6-38.7 0-117.5-95.6-213.2-213.1-213.2-65.3 0-125.4 29.9-165.2 78.6-26.6-13.6-56.3-20.9-86.9-20.9-92.2 0-169.4 65.6-187.3 152.7-76.7 33.1-129 109.8-129 195.8 0 117.5 95.6 213.1 213.2 213.1h490.6c105.4 0 191.2-85.8 191.2-191.2-0.1-79.1-48.5-147.2-117.1-176.2z m-74.3 311.5H276.9c-86.9 0-157.3-70.4-157.3-157.3 0-75.9 53.8-139.2 125.3-154 0-1.1-0.2-2.2-0.2-3.3 0-74.7 60.6-135.3 135.4-135.3 41.6 0 78.7 18.8 103.5 48.3 21.3-61.6 79.7-105.9 148.5-105.9 86.9 0 157.3 70.4 157.3 157.3 0 29.1-8 56.2-21.8 79.6 74.7 0.1 135.2 60.6 135.2 135.3 0.1 74.7-60.5 135.3-135.3 135.3z"/><path d="M767.7 531.3c-0.1 0-0.1 0 0 0-10.3 0-18.6 8.3-18.6 18.6s8.3 18.6 18.6 18.7c35.3 0 64 28.8 64 64.1s-28.7 64.1-64.1 64.1H276.9c-47.4 0-86-38.6-86-86 0-40.6 28.8-76 68.4-84.2 10.1-2.1 16.6-11.9 14.5-22-2.1-10.1-11.9-16.5-22-14.5-56.9 11.8-98.1 62.5-98.1 120.7 0 68 55.3 123.3 123.3 123.3h490.6c55.9 0 101.3-45.5 101.3-101.3 0-56-45.4-101.5-101.2-101.5zM527.3 401.1c9.7 3.3 20.3-1.8 23.7-11.5 12-34.7 44.6-57.9 81.2-57.9 47.4 0 86 38.6 86 86 0 15.1-4.1 30.2-11.9 43.4-5.2 8.9-2.3 20.3 6.6 25.5 3 1.7 6.2 2.6 9.4 2.6 6.4 0 12.6-3.3 16.1-9.2 11.2-19 17.1-40.6 17.1-62.3 0-68-55.3-123.3-123.3-123.3-52.4 0-99.2 33.4-116.4 83-3.3 9.7 1.8 20.3 11.5 23.7zM297.2 470.9h0.3c10.2 0 18.5-8.2 18.6-18.4 0.5-34.8 29.2-63.2 64.1-63.2 18.9 0 36.8 8.3 49 22.9 6.6 7.9 18.4 8.9 26.2 2.3 7.9-6.6 8.9-18.4 2.3-26.3-19.3-23-47.6-36.2-77.5-36.2-55.1 0-100.6 44.8-101.3 100-0.2 10.3 8 18.7 18.3 18.9z"/></svg>
+        <h1>Airdrop</h1>
       </div>
       <div class="device-info">
         <span class="device-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span id="deviceName">-</span></span>
@@ -537,6 +545,8 @@ export class WebFileServer extends EventEmitter {
     </div>
   </div>
   
+  <div class="toast" id="toast"></div>
+  
   <script>
     let clientId = null;
     let ws = null;
@@ -569,6 +579,17 @@ export class WebFileServer extends EventEmitter {
     
     let currentMode = 'file';
     
+    // Toast 提示
+    const toastEl = document.getElementById('toast');
+    let toastTimer = null;
+    
+    function showToast(msg, type = '') {
+      if (toastTimer) clearTimeout(toastTimer);
+      toastEl.textContent = msg;
+      toastEl.className = 'toast show' + (type ? ' ' + type : '');
+      toastTimer = setTimeout(() => { toastEl.className = 'toast'; }, 2500);
+    }
+    
     function switchMode(mode) {
       currentMode = mode;
       document.querySelectorAll('.mode-tab').forEach(tab => {
@@ -582,7 +603,7 @@ export class WebFileServer extends EventEmitter {
       // iOS Safari 不支持 clipboard.readText，提示用户手动粘贴
       if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
         textInput.focus();
-        alert('请长按输入框选择"粘贴"');
+        showToast('请长按输入框选择"粘贴"');
         return;
       }
       try {
@@ -594,7 +615,7 @@ export class WebFileServer extends EventEmitter {
         }
       } catch (e) {
         textInput.focus();
-        alert('请手动粘贴 (Ctrl+V 或长按粘贴)');
+        showToast('请手动粘贴 (Ctrl+V 或长按粘贴)');
       }
     }
     
@@ -655,7 +676,7 @@ export class WebFileServer extends EventEmitter {
         myNameEl.textContent = myName;
         localStorage.setItem('windrop_name', myName);
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'set-name', name: myName + ' (' + deviceModel.split('(')[0].trim() + ')' }));
+          ws.send(JSON.stringify({ type: 'set-name', name: myName }));
         }
       }
       hideEditModal();
@@ -669,9 +690,8 @@ export class WebFileServer extends EventEmitter {
       ws = new WebSocket(protocol + '//' + location.host);
       
       ws.onopen = () => {
-        // 连接后发送设备名称
-        const fullName = myName + ' (' + deviceModel.split('(')[0].trim() + ')';
-        ws.send(JSON.stringify({ type: 'set-name', name: fullName }));
+        // 连接后发送设备名称（直接使用完整型号信息）
+        ws.send(JSON.stringify({ type: 'set-name', name: deviceModel }));
       };
       
       ws.onmessage = (e) => {
@@ -683,8 +703,9 @@ export class WebFileServer extends EventEmitter {
           updateDownloadList(msg.files, msg.texts);
         } else if (msg.type === 'text-received') {
           textInput.value = '';
+          charCountEl.textContent = '0';
           sendTextBtn.disabled = true;
-          alert('文本已发送到电脑！');
+          showToast('文本已发送到电脑', 'success');
         }
       };
       
@@ -692,36 +713,47 @@ export class WebFileServer extends EventEmitter {
     }
     connect();
     
-    function copyText(id, text) {
-      // 兼容 iOS 的复制方法
-      function fallbackCopy() {
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.cssText = 'position:fixed;left:-9999px;top:0;';
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
+    async function copyText(id, text, itemEl) {
+      // 兼容 Safari/Chrome 的复制方法
+      async function doCopy() {
         try {
+          await navigator.clipboard.writeText(text);
+        } catch {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
           document.execCommand('copy');
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'copy-text', id }));
-          }
-          alert('已复制到剪贴板！');
-        } catch (e) {
-          alert('复制失败，请手动复制');
+          document.body.removeChild(textarea);
         }
-        document.body.removeChild(textarea);
       }
       
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'copy-text', id }));
+      try {
+        await doCopy();
+        // 显示成功状态
+        if (itemEl) {
+          itemEl.classList.add('copied');
+          const icon = itemEl.querySelector('.text-action-icon');
+          if (icon) {
+            icon.classList.add('success');
+            icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
           }
-          alert('已复制到剪贴板！');
-        }).catch(fallbackCopy);
-      } else {
-        fallbackCopy();
+          setTimeout(() => {
+            itemEl.classList.remove('copied');
+            if (icon) {
+              icon.classList.remove('success');
+              icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+            }
+          }, 1500);
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'copy-text', id }));
+        }
+        showToast('已复制到剪贴板', 'success');
+      } catch (e) {
+        showToast('复制失败', 'error');
       }
     }
     
@@ -744,14 +776,14 @@ export class WebFileServer extends EventEmitter {
         window._sharedTexts = {};
         texts.forEach(t => { window._sharedTexts[t.id] = t.text; });
         textList.innerHTML = texts.map(t => 
-          '<div class="text-item"><div class="text-from"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>' + pcName + '</div><div class="text-preview">' + t.text + '</div><button class="btn-copy" data-id="' + t.id + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div>'
+          '<div class="text-item" data-id="' + t.id + '"><div class="text-from"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>' + pcName + '</div><div class="text-preview">' + t.text + '</div><span class="text-action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></span></div>'
         ).join('');
-        // 绑定点击事件
-        textList.querySelectorAll('.btn-copy').forEach(btn => {
-          btn.onclick = function() {
+        // 绑定点击事件 - 点击整行复制
+        textList.querySelectorAll('.text-item').forEach(item => {
+          item.onclick = function() {
             const id = this.dataset.id;
             const text = window._sharedTexts[id];
-            if (text) copyText(id, text);
+            if (text) copyText(id, text, this);
           };
         });
       } else {

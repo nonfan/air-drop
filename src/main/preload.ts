@@ -118,6 +118,13 @@ contextBridge.exposeInMainWorld('windrop', {
     ipcRenderer.on('transfer-history-updated', (_e, history) => callback(history));
   },
   
+  // Text history
+  getTextHistory: () => ipcRenderer.invoke('get-text-history'),
+  clearTextHistory: () => ipcRenderer.invoke('clear-text-history'),
+  onTextHistoryUpdated: (callback: (history: any[]) => void) => {
+    ipcRenderer.on('text-history-updated', (_e, history) => callback(history));
+  },
+  
   // 手机下载完成事件
   onFileDownloaded: (callback: (info: { id: string; name: string; size: number }) => void) => {
     ipcRenderer.on('file-downloaded', (_e, info) => callback(info));
@@ -125,9 +132,11 @@ contextBridge.exposeInMainWorld('windrop', {
   
   // 文本传送事件
   onTextReceived: (callback: (info: { text: string; clientId: string; clientName: string }) => void) => {
+    ipcRenderer.removeAllListeners('text-received');
     ipcRenderer.on('text-received', (_e, info) => callback(info));
   },
   onTextCopied: (callback: (info: { id: string; text: string; clientId: string }) => void) => {
+    ipcRenderer.removeAllListeners('text-copied');
     ipcRenderer.on('text-copied', (_e, info) => callback(info));
   }
 });

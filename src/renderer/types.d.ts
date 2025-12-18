@@ -79,10 +79,14 @@ declare global {
       openFile: (filePath: string) => Promise<boolean>;
       showFileInFolder: (filePath: string) => Promise<boolean>;
       onTransferHistoryUpdated: (callback: (history: any[]) => void) => void;
+      // Text history
+      getTextHistory: () => Promise<any[]>;
+      clearTextHistory: () => Promise<any[]>;
+      onTextHistoryUpdated: (callback: (history: any[]) => void) => void;
       // File downloaded event
       onFileDownloaded: (callback: (info: { id: string; name: string; size: number }) => void) => void;
       // Text transfer events
-      onTextReceived: (callback: (info: { text: string; clientId: string; clientName: string }) => void) => void;
+      onTextReceived: (callback: (info: { text: string; clientId: string; clientName: string; id?: string; timestamp?: number }) => void) => void;
       onTextCopied: (callback: (info: { id: string; text: string; clientId: string }) => void) => void;
     };
   }

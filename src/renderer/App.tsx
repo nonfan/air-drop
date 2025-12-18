@@ -10,9 +10,9 @@ interface TransferRecord { id: string; fileName: string; filePath: string; size:
 interface FileItem { name: string; size: number; path: string; }
 interface SharedFile { id: string; name: string; size: number; path: string; targetId: string; }
 interface SharedText { id: string; text: string; targetId: string; }
-interface ReceivedText { text: string; from: string; timestamp: number; }
+interface ReceivedText { id: string; text: string; from: string; timestamp: number; }
 
-type View = 'transfer' | 'history' | 'settings';
+type View = 'transfer' | 'settings';
 
 function App() {
   const [view, setView] = useState<View>('transfer');
@@ -35,11 +35,16 @@ function App() {
   const [receivedTexts, setReceivedTexts] = useState<ReceivedText[]>([]);
   const [textInput, setTextInput] = useState('');
   const [sendMode, setSendMode] = useState<'file' | 'text'>('file');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [openedId, setOpenedId] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     window.windrop.getSettings().then(setSettings);
     window.windrop.getWebURL().then(setWebURL);
     window.windrop.getTransferHistory().then(setTransferHistory);
+    // 获取持久化的文本历史
+    window.windrop.getTextHistory().then(setReceivedTexts);
     
     // 获取电脑设备
     window.windrop.getDevices().then(pcDevices => {
@@ -55,20 +60,36 @@ function App() {
     
     // 电脑设备事件
     window.windrop.onDeviceFound((d) => {
-      setDevices(prev => [...prev.filter(x => x.id !== d.id), { ...d, type: 'pc' }]);
+      setDevices(prev => {
+        const exists = prev.find(x => x.id === d.id);
+        if (exists) {
+          // 已存在则原位更新
+          return prev.map(x => x.id === d.id ? { ...d, type: 'pc' as const } : x);
+        }
+        // 新设备添加到末尾
+        return [...prev, { ...d, type: 'pc' as const }];
+      });
     });
     window.windrop.onDeviceLost((id) => {
       setDevices(prev => prev.filter(x => x.id !== id));
-      if (selectedDevice === id) setSelectedDevice(null);
+      setSelectedDevice(prev => prev === id ? null : prev);
     });
     
     // 手机设备事件
     window.windrop.onMobileConnected((m) => {
-      setDevices(prev => [...prev.filter(x => x.id !== m.id), { ...m, type: 'mobile' }]);
+      setDevices(prev => {
+        const exists = prev.find(x => x.id === m.id);
+        if (exists) {
+          // 已存在则原位更新
+          return prev.map(x => x.id === m.id ? { ...m, type: 'mobile' as const } : x);
+        }
+        // 新设备添加到末尾
+        return [...prev, { ...m, type: 'mobile' as const }];
+      });
     });
     window.windrop.onMobileDisconnected((m) => {
       setDevices(prev => prev.filter(x => x.id !== m.id));
-      if (selectedDevice === m.id) setSelectedDevice(null);
+      setSelectedDevice(prev => prev === m.id ? null : prev);
       // 移除发给该手机的分享文件
       setSharedFiles(prev => prev.filter(f => f.targetId !== m.id));
     });
@@ -85,9 +106,10 @@ function App() {
     window.windrop.onWebUploadProgress(setWebUploadProgress);
     window.windrop.onWebUploadComplete(() => setWebUploadProgress(null));
     window.windrop.onFileDownloaded((i) => setSharedFiles(prev => prev.filter(f => f.id !== i.id)));
-    window.windrop.onTextReceived((i) => setReceivedTexts(prev => [{ text: i.text, from: i.clientName, timestamp: Date.now() }, ...prev].slice(0, 10)));
+    // 只监听 text-history-updated，因为 main.ts 中 addTextRecord 会触发这个事件
+    window.windrop.onTextHistoryUpdated(setReceivedTexts);
     window.windrop.onTextCopied((i) => setSharedTexts(prev => prev.filter(t => t.id !== i.id)));
-  }, [selectedDevice]);
+  }, []);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
@@ -145,15 +167,51 @@ function App() {
   };
 
   const progress = isSending ? sendProgress : isReceiving ? receiveProgress : webUploadProgress ? { percent: webUploadProgress.percent, currentFile: webUploadProgress.name } : null;
-  const selectedDeviceInfo = devices.find(d => d.id === selectedDevice);
+
+  // 复制文本到剪贴板
+  const handleCopyText = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    } catch {
+      setToast('复制失败');
+      setTimeout(() => setToast(null), 2000);
+    }
+  };
+
+  // 打开文件所在位置
+  const handleOpenFile = async (filePath: string, id: string) => {
+    try {
+      await window.windrop.showFileInFolder(filePath);
+      setOpenedId(id);
+      setTimeout(() => setOpenedId(null), 1500);
+    } catch {
+      setToast('文件找不到');
+      setTimeout(() => setToast(null), 2000);
+    }
+  };
+
+  // 清空全部记录
+  const handleClearAllHistory = async () => {
+    await window.windrop.clearTransferHistory();
+    await window.windrop.clearTextHistory();
+    setTransferHistory([]);
+    setReceivedTexts([]);
+    setToast('已清空全部记录');
+    setTimeout(() => setToast(null), 2000);
+  };
 
   return (
     <div className="app" onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} onDrop={handleDrop}>
       {/* 顶部栏 */}
       <header className="titlebar">
         <div className="titlebar-drag">
-          <svg className="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-          <span className="logo-text">WinDrop</span>
+          <svg className="logo-icon" viewBox="0 0 1024 1024" fill="#3b82f6">
+              <path d="M841.8 456.4c2.4-12.7 3.6-25.7 3.6-38.7 0-117.5-95.6-213.2-213.1-213.2-65.3 0-125.4 29.9-165.2 78.6-26.6-13.6-56.3-20.9-86.9-20.9-92.2 0-169.4 65.6-187.3 152.7-76.7 33.1-129 109.8-129 195.8 0 117.5 95.6 213.1 213.2 213.1h490.6c105.4 0 191.2-85.8 191.2-191.2-0.1-79.1-48.5-147.2-117.1-176.2z m-74.3 311.5H276.9c-86.9 0-157.3-70.4-157.3-157.3 0-75.9 53.8-139.2 125.3-154 0-1.1-0.2-2.2-0.2-3.3 0-74.7 60.6-135.3 135.4-135.3 41.6 0 78.7 18.8 103.5 48.3 21.3-61.6 79.7-105.9 148.5-105.9 86.9 0 157.3 70.4 157.3 157.3 0 29.1-8 56.2-21.8 79.6 74.7 0.1 135.2 60.6 135.2 135.3 0.1 74.7-60.5 135.3-135.3 135.3z"/>
+              <path d="M767.7 531.3c-0.1 0-0.1 0 0 0-10.3 0-18.6 8.3-18.6 18.6s8.3 18.6 18.6 18.7c35.3 0 64 28.8 64 64.1s-28.7 64.1-64.1 64.1H276.9c-47.4 0-86-38.6-86-86 0-40.6 28.8-76 68.4-84.2 10.1-2.1 16.6-11.9 14.5-22-2.1-10.1-11.9-16.5-22-14.5-56.9 11.8-98.1 62.5-98.1 120.7 0 68 55.3 123.3 123.3 123.3h490.6c55.9 0 101.3-45.5 101.3-101.3 0-56-45.4-101.5-101.2-101.5zM527.3 401.1c9.7 3.3 20.3-1.8 23.7-11.5 12-34.7 44.6-57.9 81.2-57.9 47.4 0 86 38.6 86 86 0 15.1-4.1 30.2-11.9 43.4-5.2 8.9-2.3 20.3 6.6 25.5 3 1.7 6.2 2.6 9.4 2.6 6.4 0 12.6-3.3 16.1-9.2 11.2-19 17.1-40.6 17.1-62.3 0-68-55.3-123.3-123.3-123.3-52.4 0-99.2 33.4-116.4 83-3.3 9.7 1.8 20.3 11.5 23.7zM297.2 470.9h0.3c10.2 0 18.5-8.2 18.6-18.4 0.5-34.8 29.2-63.2 64.1-63.2 18.9 0 36.8 8.3 49 22.9 6.6 7.9 18.4 8.9 26.2 2.3 7.9-6.6 8.9-18.4 2.3-26.3-19.3-23-47.6-36.2-77.5-36.2-55.1 0-100.6 44.8-101.3 100-0.2 10.3 8 18.7 18.3 18.9z"/>
+            </svg>
+          <span className="logo-text">Airdrop</span>
         </div>
         <div className="titlebar-controls">
           <button onClick={() => window.windrop.minimize()} className="ctrl-btn"><svg viewBox="0 0 12 12"><rect y="5" width="12" height="2" fill="currentColor"/></svg></button>
@@ -169,18 +227,16 @@ function App() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
               <span>传输</span>
             </button>
-            <button className={`nav-btn ${view === 'history' ? 'active' : ''}`} onClick={() => setView('history')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-              <span>记录</span>
-              {transferHistory.length > 0 && <span className="badge">{transferHistory.length}</span>}
-            </button>
             <button className={`nav-btn ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
               <span>设置</span>
             </button>
           </div>
           <div className="sidebar-footer">
-            <div className="device-status"><div className="status-dot"></div><span>{settings?.deviceName || 'WinDrop'}</span></div>
+            <div className="device-status"><div className="status-dot"></div><span>{settings?.deviceName || 'Airdrop'}</span></div>
+            <button className="qr-btn-sidebar" onClick={() => setShowQR(true)} title="手机扫码连接">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 17h.01M17 14h.01M20 14h.01M14 20h.01M17 20h.01M20 17h.01"/></svg>
+            </button>
           </div>
         </nav>
 
@@ -188,7 +244,7 @@ function App() {
         <main className="content">
           {view === 'settings' && (
             <div className="page">
-              <div className="page-header"><h1>设置</h1><p>配置您的 WinDrop 偏好设置</p></div>
+              <div className="page-header"><h1>设置</h1><p>配置您的 Airdrop 偏好设置</p></div>
               <div className="settings-list">
                 <div className="setting-item">
                   <div className="setting-label"><span className="setting-title">设备名称</span><span className="setting-desc">其他设备将看到此名称</span></div>
@@ -221,27 +277,9 @@ function App() {
             </div>
           )}
 
-          {view === 'history' && (
-            <div className="page">
-              <div className="page-header"><h1>传输记录</h1><p>查看最近的文件传输历史</p></div>
-              {transferHistory.length === 0 ? (
-                <div className="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><span>暂无传输记录</span></div>
-              ) : (
-                <div className="history-list">
-                  {transferHistory.map(r => (
-                    <div key={r.id} className="history-item" onClick={() => window.windrop.showFileInFolder(r.filePath)}>
-                      <div className={`history-icon ${r.type}`}>{r.type === 'received' ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg> : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>}</div>
-                      <div className="history-info"><span className="history-name">{r.fileName}</span><span className="history-meta">{r.from} · {formatSize(r.size)}</span></div>
-                      <span className="history-time">{formatTime(r.timestamp)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {view === 'transfer' && (
-            <div className="page transfer-page">
+            <div className="page transfer-page two-column">
+              <div className="transfer-left">
               {/* 模式切换 */}
               <div className="mode-tabs">
                 <button className={`mode-tab ${sendMode === 'file' ? 'active' : ''}`} onClick={() => setSendMode('file')}>
@@ -303,7 +341,7 @@ function App() {
               <div className="section">
                 <div className="section-header">
                   <h2>附近设备</h2>
-                  <span className="device-count">{devices.filter(d => d.type === 'pc').length} 台电脑 · {devices.filter(d => d.type === 'mobile').length} 台手机</span>
+                  <span className="device-count">{devices.length} 台设备</span>
                 </div>
                 {devices.length === 0 ? (
                   <div className="empty-devices">
@@ -369,23 +407,102 @@ function App() {
                 </div>
               )}
 
-              {/* 收到的文本 */}
-              {receivedTexts.length > 0 && (
-                <div className="section received-texts">
-                  <div className="section-header"><h2>收到的文本</h2><button className="btn-text" onClick={() => setReceivedTexts([])}>清空</button></div>
-                  <div className="text-list">
-                    {receivedTexts.map((t, i) => (
-                      <div key={i} className="text-item">
-                        <div className="text-content">{t.text}</div>
-                        <div className="text-meta">
-                          <span>{t.from}</span>
-                          <button className="btn-text-sm" onClick={() => navigator.clipboard.writeText(t.text)}>复制</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+              </div>
+
+              {/* 右侧传输记录 */}
+              <div className="transfer-right">
+                <div className="section-header">
+                  <h2>传输记录</h2>
+                  {(transferHistory.length > 0 || receivedTexts.length > 0) && (
+                    <button className="btn-clear" onClick={handleClearAllHistory} title="清空全部记录">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                  )}
                 </div>
-              )}
+                <div className="history-list-full-right">
+                  {(() => {
+                    const allRecords = [
+                      ...receivedTexts.map((t) => ({ recordType: 'text' as const, id: t.id, text: t.text, from: t.from, timestamp: t.timestamp })),
+                      ...transferHistory.map(r => ({ recordType: 'file' as const, ...r }))
+                    ].sort((a, b) => b.timestamp - a.timestamp);
+
+                    if (allRecords.length === 0) {
+                      return <div className="empty-history"><span>暂无记录</span></div>;
+                    }
+
+                    return allRecords.map(r => {
+                      if (r.recordType === 'text') {
+                        const isCopied = copiedId === r.id;
+                        return (
+                          <div key={r.id} className={`history-item-full text ${isCopied ? 'success' : ''}`} onClick={() => handleCopyText(r.text, r.id)}>
+                            <div className="history-icon-full text">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                            </div>
+                            <div className="history-content-full">
+                              <div className="history-main">
+                                <span className="history-name-full">{r.text}</span>
+                              </div>
+                              <div className="history-meta-full">
+                                <span className="history-from">{r.from}</span>
+                                <span className="history-time-full">{formatTime(r.timestamp)}</span>
+                              </div>
+                            </div>
+                            <span className={`history-action-icon ${isCopied ? 'success' : ''}`}>
+                              {isCopied ? (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>
+                              ) : (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      } else {
+                        const isOpened = openedId === r.id;
+                        const ext = r.fileName.split('.').pop()?.toLowerCase() || '';
+                        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext);
+                        const isVideo = ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
+                        const isAudio = ['mp3', 'wav', 'flac', 'aac', 'm4a'].includes(ext);
+                        const isDoc = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt'].includes(ext);
+                        const fileTypeClass = isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : isDoc ? 'doc' : 'file';
+                        return (
+                          <div key={r.id} className={`history-item-full file ${isOpened ? 'success' : ''}`} onClick={() => handleOpenFile(r.filePath, r.id)}>
+                            <div className={`history-icon-full ${fileTypeClass}`}>
+                              {isImage ? (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                              ) : isVideo ? (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="2.18"/><path d="M10 8l6 4-6 4V8z"/></svg>
+                              ) : isAudio ? (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                              ) : isDoc ? (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+                              ) : (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg>
+                              )}
+                            </div>
+                            <div className="history-content-full">
+                              <div className="history-main">
+                                <span className="history-name-full">{r.fileName}</span>
+                              </div>
+                              <div className="history-meta-full">
+                                <span className="history-from">{r.from}</span>
+                                <span className="history-size-full">{formatSize(r.size)}</span>
+                                <span className="history-time-full">{formatTime(r.timestamp)}</span>
+                              </div>
+                            </div>
+                            <span className={`history-action-icon ${isOpened ? 'success' : ''}`}>
+                              {isOpened ? (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>
+                              ) : (
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      }
+                    });
+                  })()}
+                </div>
+              </div>
             </div>
           )}
         </main>
@@ -415,6 +532,9 @@ function App() {
         </div>
       )}
 
+      {/* Toast 提示 */}
+      {toast && <div className="toast">{toast}</div>}
+
       {/* 二维码弹窗 */}
       {showQR && (
         <div className="modal-backdrop" onClick={() => setShowQR(false)}>
@@ -434,12 +554,7 @@ function App() {
         </div>
       )}
 
-      {/* 底部二维码入口 */}
-      {view === 'transfer' && !showQR && (
-        <button className="qr-fab" onClick={() => setShowQR(true)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 17h.01M17 14h.01M20 14h.01M14 20h.01M17 20h.01M20 17h.01"/></svg>
-        </button>
-      )}
+
     </div>
   );
 }

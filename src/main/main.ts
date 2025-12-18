@@ -16,12 +16,20 @@ interface TransferRecord {
   type: 'received' | 'sent';
 }
 
+interface TextRecord {
+  id: string;
+  text: string;
+  from: string;
+  timestamp: number;
+}
+
 interface StoreSchema {
   deviceName: string;
   downloadPath: string;
   autoAccept: boolean;
   showNotifications: boolean;
   transferHistory: TransferRecord[];
+  textHistory: TextRecord[];
 }
 
 const store = new Store<StoreSchema>({
@@ -30,7 +38,8 @@ const store = new Store<StoreSchema>({
     downloadPath: '',
     autoAccept: false,
     showNotifications: true,
-    transferHistory: []
+    transferHistory: [],
+    textHistory: []
   }
 });
 
@@ -48,6 +57,20 @@ function addTransferRecord(record: Omit<TransferRecord, 'id' | 'timestamp'>) {
   return newRecord;
 }
 
+function addTextRecord(record: Omit<TextRecord, 'id' | 'timestamp'>) {
+  const history = store.get('textHistory') || [];
+  const newRecord: TextRecord = {
+    ...record,
+    id: Math.random().toString(36).slice(2, 10),
+    timestamp: Date.now()
+  };
+  // Keep last 30 text records
+  const updated = [newRecord, ...history].slice(0, 30);
+  store.set('textHistory', updated);
+  mainWindow?.webContents.send('text-history-updated', updated);
+  return newRecord;
+}
+
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let discovery: DeviceDiscovery | null = null;
@@ -59,14 +82,17 @@ let downloadPath: string;
 let webServerURL: string = '';
 
 async function createWindow() {
+  const iconPath = path.join(__dirname, '../../public/icon.ico');
+  
   mainWindow = new BrowserWindow({
-    width: 520,
-    height: 600,
+    width: 900,
+    height: 650,
     frame: false,
     transparent: true,
     resizable: true,
-    minWidth: 480,
-    minHeight: 500,
+    minWidth: 900,
+    minHeight: 550,
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -103,16 +129,17 @@ async function createWindow() {
 }
 
 function createTray() {
-  const icon = nativeImage.createEmpty();
-  tray = new Tray(icon);
+  const iconPath = path.join(__dirname, '../../public/icon.ico');
+  const icon = nativeImage.createFromPath(iconPath);
+  tray = new Tray(icon.resize({ width: 16, height: 16 }));
   
   const contextMenu = Menu.buildFromTemplate([
-    { label: '打开 WinDrop', click: () => mainWindow?.show() },
+    { label: '打开 Airdrop', click: () => mainWindow?.show() },
     { type: 'separator' },
     { label: '退出', click: () => { app.quit(); process.exit(0); } }
   ]);
   
-  tray.setToolTip('WinDrop - 文件传输');
+  tray.setToolTip('Airdrop - 文件传输');
   tray.setContextMenu(contextMenu);
   tray.on('click', () => mainWindow?.show());
 }
@@ -189,12 +216,12 @@ async function initServices() {
   // Start Web Server for mobile access
   webServer = new WebFileServer(downloadPath, deviceName);
   
-  webServer.on('upload-start', (info: { name: string; size: number }) => {
+  webServer.on('upload-start', (info: { name: string; size: number; clientName?: string }) => {
     mainWindow?.webContents.send('web-upload-start', info);
     if (store.get('showNotifications')) {
       new Notification({
-        title: 'WinDrop - 网页上传',
-        body: `正在接收: ${info.name}`
+        title: 'WinDrop',
+        body: `正在接收来自 ${info.clientName || '手机'} 的文件: ${info.name}`
       }).show();
     }
   });
@@ -203,14 +230,14 @@ async function initServices() {
     mainWindow?.webContents.send('web-upload-progress', progress);
   });
 
-  webServer.on('upload-complete', (info: { name: string; size: number; filePath?: string }) => {
+  webServer.on('upload-complete', (info: { name: string; size: number; filePath?: string; clientName?: string }) => {
     mainWindow?.webContents.send('web-upload-complete', info);
     // Add to transfer history
     addTransferRecord({
       fileName: info.name,
       filePath: info.filePath || path.join(downloadPath, info.name),
       size: info.size,
-      from: '网页上传',
+      from: info.clientName || '手机',
       type: 'received'
     });
     if (store.get('showNotifications')) {
@@ -251,7 +278,9 @@ async function initServices() {
 
   // 手机发送文本到电脑
   webServer.on('text-received', (info: { text: string; clientId: string; clientName: string }) => {
-    mainWindow?.webContents.send('text-received', info);
+    // 保存到文本历史
+    const textRecord = addTextRecord({ text: info.text, from: info.clientName });
+    mainWindow?.webContents.send('text-received', { ...info, id: textRecord.id, timestamp: textRecord.timestamp });
     // 自动复制到剪贴板
     clipboard.writeText(info.text);
     if (store.get('showNotifications')) {
@@ -374,6 +403,13 @@ ipcMain.handle('get-clipboard-text', () => {
 ipcMain.handle('get-transfer-history', () => store.get('transferHistory') || []);
 ipcMain.handle('clear-transfer-history', () => {
   store.set('transferHistory', []);
+  return [];
+});
+
+// Text history IPC
+ipcMain.handle('get-text-history', () => store.get('textHistory') || []);
+ipcMain.handle('clear-text-history', () => {
+  store.set('textHistory', []);
   return [];
 });
 ipcMain.handle('open-file', (_e, filePath: string) => {
