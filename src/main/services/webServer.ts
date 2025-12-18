@@ -421,10 +421,13 @@ export class WebFileServer extends EventEmitter {
     .text-card { padding: 0; height: 160px; display: flex; flex-direction: column; }
     .text-card textarea { flex: 1; width: 100%; padding: 14px 16px; background: transparent; border: none; color: #fff; font-size: 14px; line-height: 1.5; resize: none; outline: none; font-family: inherit; }
     .text-card textarea::placeholder { color: #4b4b54; }
+    .text-card textarea { -webkit-user-select: text; user-select: text; }
+    .text-card textarea:focus { background: rgba(59,130,246,0.03); }
+    .text-card textarea:focus::placeholder { color: #60a5fa; }
     .text-actions { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid rgba(255,255,255,0.06); }
-    .paste-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); border-radius: 6px; color: #60a5fa; font-size: 12px; cursor: pointer; }
-    .paste-btn svg { width: 14px; height: 14px; }
-    .paste-btn:active { background: rgba(59,130,246,0.2); }
+    .paste-hint { display: flex; align-items: center; gap: 6px; color: #6b6b74; font-size: 12px; }
+    .paste-hint svg { width: 14px; height: 14px; }
+    .paste-hint.hidden { display: none; }
     .text-count { font-size: 11px; color: #4b4b54; }
     
     .text-list-card { min-height: auto; }
@@ -500,12 +503,12 @@ export class WebFileServer extends EventEmitter {
       
       <div id="textMode" style="display:none;">
         <div class="card text-card">
-          <textarea id="textInput" placeholder="输入要发送的文本..."></textarea>
+          <textarea id="textInput" placeholder="长按此处粘贴文本，或直接输入..."></textarea>
           <div class="text-actions">
-            <button class="paste-btn" onclick="pasteFromClipboard()">
+            <div class="paste-hint" id="pasteHint">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-              粘贴
-            </button>
+              <span>长按输入框粘贴</span>
+            </div>
             <span class="text-count"><span id="charCount">0</span> 字</span>
           </div>
         </div>
@@ -599,29 +602,39 @@ export class WebFileServer extends EventEmitter {
       textModeEl.style.display = mode === 'text' ? 'block' : 'none';
     }
     
-    async function pasteFromClipboard() {
-      // iOS Safari 不支持 clipboard.readText，提示用户手动粘贴
-      if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-        textInput.focus();
-        showToast('请长按输入框选择"粘贴"');
-        return;
+    const pasteHint = document.getElementById('pasteHint');
+    
+    // 输入框获得焦点时隐藏提示
+    textInput.onfocus = () => {
+      pasteHint.classList.add('hidden');
+    };
+    
+    // 输入框失去焦点且为空时显示提示
+    textInput.onblur = () => {
+      if (!textInput.value.trim()) {
+        pasteHint.classList.remove('hidden');
       }
-      try {
-        const text = await navigator.clipboard.readText();
-        if (text) {
-          textInput.value = text;
-          charCountEl.textContent = text.length;
-          sendTextBtn.disabled = false;
-        }
-      } catch (e) {
-        textInput.focus();
-        showToast('请手动粘贴 (Ctrl+V 或长按粘贴)');
-      }
-    }
+    };
     
     textInput.oninput = () => { 
       charCountEl.textContent = textInput.value.length;
       sendTextBtn.disabled = !textInput.value.trim();
+      // 有内容时隐藏提示
+      if (textInput.value.trim()) {
+        pasteHint.classList.add('hidden');
+      }
+    };
+    
+    // 监听粘贴事件，显示成功提示
+    textInput.onpaste = () => {
+      setTimeout(() => {
+        if (textInput.value.trim()) {
+          showToast('已粘贴', 'success');
+          charCountEl.textContent = textInput.value.length;
+          sendTextBtn.disabled = false;
+          pasteHint.classList.add('hidden');
+        }
+      }, 10);
     };
     sendTextBtn.onclick = () => {
       const text = textInput.value.trim();
