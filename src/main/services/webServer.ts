@@ -713,48 +713,62 @@ export class WebFileServer extends EventEmitter {
     }
     connect();
     
-    async function copyText(id, text, itemEl) {
-      // 兼容 Safari/Chrome 的复制方法
-      async function doCopy() {
-        try {
-          await navigator.clipboard.writeText(text);
-        } catch {
-          const textarea = document.createElement('textarea');
-          textarea.value = text;
-          textarea.style.position = 'fixed';
-          textarea.style.opacity = '0';
-          document.body.appendChild(textarea);
-          textarea.select();
-          document.execCommand('copy');
-          document.body.removeChild(textarea);
-        }
-      }
+    function copyText(id, text, itemEl) {
+      // 同步执行复制，确保在用户手势上下文中
+      let success = false;
+      
+      // 方法1: 使用 textarea + execCommand (兼容性最好)
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
       
       try {
-        await doCopy();
-        // 显示成功状态
-        if (itemEl) {
-          itemEl.classList.add('copied');
-          const icon = itemEl.querySelector('.text-action-icon');
-          if (icon) {
-            icon.classList.add('success');
-            icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
-          }
-          setTimeout(() => {
-            itemEl.classList.remove('copied');
-            if (icon) {
-              icon.classList.remove('success');
-              icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
-            }
-          }, 1500);
-        }
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'copy-text', id }));
-        }
-        showToast('已复制到剪贴板', 'success');
+        success = document.execCommand('copy');
       } catch (e) {
-        showToast('复制失败', 'error');
+        success = false;
       }
+      document.body.removeChild(textarea);
+      
+      // 方法2: 如果方法1失败，尝试 Clipboard API
+      if (!success && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showCopySuccess(id, itemEl);
+        }).catch(() => {
+          showToast('复制失败，请长按文本手动复制', 'error');
+        });
+        return;
+      }
+      
+      if (success) {
+        showCopySuccess(id, itemEl);
+      } else {
+        showToast('复制失败，请长按文本手动复制', 'error');
+      }
+    }
+    
+    function showCopySuccess(id, itemEl) {
+      if (itemEl) {
+        itemEl.classList.add('copied');
+        const icon = itemEl.querySelector('.text-action-icon');
+        if (icon) {
+          icon.classList.add('success');
+          icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
+        }
+        setTimeout(() => {
+          itemEl.classList.remove('copied');
+          if (icon) {
+            icon.classList.remove('success');
+            icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+          }
+        }, 1500);
+      }
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'copy-text', id }));
+      }
+      showToast('已复制到剪贴板', 'success');
     }
     
     function updateDownloadList(files, texts) {
