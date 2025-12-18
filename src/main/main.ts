@@ -79,6 +79,7 @@ function addTextRecord(record: Omit<TextRecord, 'id' | 'timestamp'>) {
 
 let mainWindow: BrowserWindow | null = null;
 let autoLaunchTimer: NodeJS.Timeout | null = null;
+let isQuitting = false;
 let tray: Tray | null = null;
 let discovery: DeviceDiscovery | null = null;
 let transferServer: FileTransferServer | null = null;
@@ -133,8 +134,10 @@ async function createWindow() {
   }
 
   mainWindow.on('close', (e) => {
-    e.preventDefault();
-    mainWindow?.hide();
+    if (!isQuitting) {
+      e.preventDefault();
+      mainWindow?.hide();
+    }
   });
 }
 
@@ -148,7 +151,7 @@ function createTray() {
   const contextMenu = Menu.buildFromTemplate([
     { label: '打开 Airdrop', click: () => mainWindow?.show() },
     { type: 'separator' },
-    { label: '退出', click: () => { app.quit(); process.exit(0); } }
+    { label: '退出', click: () => { isQuitting = true; app.quit(); } }
   ]);
   
   tray.setToolTip('Airdrop - 文件传输');
@@ -519,7 +522,7 @@ ipcMain.handle('download-update', async () => {
 });
 
 ipcMain.handle('install-update', () => {
-  // 强制退出并安装，不等待应用关闭
+  isQuitting = true;
   autoUpdater.quitAndInstall(false, true);
 });
 

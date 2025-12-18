@@ -1,6 +1,6 @@
 {
   "name": "airdrop",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "跨平台局域网文件传输工具",
   "main": "dist/main/main.js",
   "scripts": {
