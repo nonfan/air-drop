@@ -5,6 +5,7 @@ import { DeviceDiscovery } from './services/discovery';
 import { FileTransferServer } from './services/transfer';
 import { WebFileServer } from './services/webServer';
 import Store from 'electron-store';
+import { APP_CONFIG, generateDeviceName } from './config';
 
 interface TransferRecord {
   id: string;
@@ -34,7 +35,7 @@ interface StoreSchema {
 
 const store = new Store<StoreSchema>({
   defaults: {
-    deviceName: `WinDrop-${Math.random().toString(36).slice(2, 6)}`,
+    deviceName: generateDeviceName(),
     downloadPath: '',
     autoAccept: false,
     showNotifications: true,
@@ -82,7 +83,10 @@ let downloadPath: string;
 let webServerURL: string = '';
 
 async function createWindow() {
-  const iconPath = path.join(__dirname, '../../public/icon.ico');
+  // 打包后图标在 resources 目录，开发时在 public 目录
+  const iconPath = app.isPackaged 
+    ? path.join(process.resourcesPath, 'icon.ico')
+    : path.join(__dirname, '../../public/icon.ico');
   
   mainWindow = new BrowserWindow({
     width: 900,
@@ -152,7 +156,7 @@ async function initServices() {
     // Show notification
     if (store.get('showNotifications')) {
       const notification = new Notification({
-        title: 'WinDrop - 收到文件',
+        title: `${APP_CONFIG.APP_NAME} - 收到文件`,
         body: `${info.senderName} 想要发送 ${info.files.length} 个文件`,
         silent: false
       });
@@ -187,7 +191,7 @@ async function initServices() {
     }
     if (store.get('showNotifications')) {
       new Notification({
-        title: 'WinDrop',
+        title: APP_CONFIG.APP_NAME,
         body: '文件接收完成！'
       }).show();
     }
@@ -220,7 +224,7 @@ async function initServices() {
     mainWindow?.webContents.send('web-upload-start', info);
     if (store.get('showNotifications')) {
       new Notification({
-        title: 'WinDrop',
+        title: APP_CONFIG.APP_NAME,
         body: `正在接收来自 ${info.clientName || '手机'} 的文件: ${info.name}`
       }).show();
     }
@@ -242,7 +246,7 @@ async function initServices() {
     });
     if (store.get('showNotifications')) {
       new Notification({
-        title: 'WinDrop',
+        title: APP_CONFIG.APP_NAME,
         body: `文件接收完成: ${info.name}`
       }).show();
     }
@@ -252,7 +256,7 @@ async function initServices() {
   webServer.on('client-connected', (client: { id: string; name: string; ip: string }) => {
     mainWindow?.webContents.send('mobile-connected', client);
     if (store.get('showNotifications')) {
-      new Notification({ title: 'WinDrop', body: `手机已连接: ${client.name}` }).show();
+      new Notification({ title: APP_CONFIG.APP_NAME, body: `手机已连接: ${client.name}` }).show();
     }
   });
 
@@ -270,7 +274,7 @@ async function initServices() {
     mainWindow?.webContents.send('file-downloaded', info);
     if (store.get('showNotifications')) {
       new Notification({
-        title: 'WinDrop',
+        title: APP_CONFIG.APP_NAME,
         body: `手机已下载: ${info.name}`
       }).show();
     }
@@ -285,7 +289,7 @@ async function initServices() {
     clipboard.writeText(info.text);
     if (store.get('showNotifications')) {
       new Notification({
-        title: 'WinDrop - 收到文本',
+        title: `${APP_CONFIG.APP_NAME} - 收到文本`,
         body: `来自 ${info.clientName}: ${info.text.slice(0, 50)}${info.text.length > 50 ? '...' : ''}`
       }).show();
     }

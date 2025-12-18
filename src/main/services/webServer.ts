@@ -552,7 +552,7 @@ export class WebFileServer extends EventEmitter {
     let ws = null;
     let uploadWs = null;
     let selectedFiles = [];
-    let myName = localStorage.getItem('windrop_name') || '';
+    let myName = localStorage.getItem('airdrop_name') || '';
     
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
@@ -674,7 +674,7 @@ export class WebFileServer extends EventEmitter {
       if (name) {
         myName = name;
         myNameEl.textContent = myName;
-        localStorage.setItem('windrop_name', myName);
+        localStorage.setItem('airdrop_name', myName);
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'set-name', name: myName }));
         }

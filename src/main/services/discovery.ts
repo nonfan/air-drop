@@ -2,6 +2,7 @@ import Bonjour, { Service } from 'bonjour-service';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { networkInterfaces } from 'os';
+import { APP_CONFIG } from '../config';
 
 export interface Device {
   id: string;
@@ -49,7 +50,7 @@ export class DeviceDiscovery extends EventEmitter {
     try {
       this.bonjour.publish({
         name: uniqueName,
-        type: 'windrop',
+        type: APP_CONFIG.SERVICE_TYPE,
         port: this.port,
         txt: { id: this.deviceId, displayName: this.deviceName }
       });
@@ -58,7 +59,7 @@ export class DeviceDiscovery extends EventEmitter {
     }
 
     // Browse for other devices
-    this.browser = this.bonjour.find({ type: 'windrop' }, (service: Service) => {
+    this.browser = this.bonjour.find({ type: APP_CONFIG.SERVICE_TYPE }, (service: Service) => {
       this.handleServiceFound(service);
     });
 

@@ -1,7 +1,7 @@
 {
-  "name": "windrop",
+  "name": "airdrop",
   "version": "1.0.0",
-  "description": "Windows AirDrop alternative - Local network file sharing",
+  "description": "跨平台局域网文件传输工具",
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
@@ -48,6 +48,12 @@
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "public/icon.ico",
+        "to": "icon.ico"
+      }
+    ],
     "win": {
       "target": ["nsis", "portable"],
       "icon": "public/icon.ico",
