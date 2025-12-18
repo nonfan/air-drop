@@ -15,9 +15,11 @@
     "dist": "electron-builder"
   },
   "dependencies": {
+    "@types/selfsigned": "^2.0.4",
     "bonjour-service": "^1.2.1",
     "electron-store": "^8.1.0",
     "qrcode.react": "^4.2.0",
+    "selfsigned": "^2.4.1",
     "uuid": "^9.0.1",
     "ws": "^8.16.0"
   },
@@ -55,7 +57,10 @@
       }
     ],
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "public/icon.ico",
       "signAndEditExecutable": false
     },

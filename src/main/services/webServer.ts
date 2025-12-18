@@ -1,10 +1,12 @@
 import * as http from 'http';
+import * as https from 'https';
 import * as fs from 'fs';
 import * as path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { EventEmitter } from 'events';
 import { networkInterfaces } from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import selfsigned from 'selfsigned';
 
 interface MobileClient {
   id: string;
@@ -26,7 +28,7 @@ interface SharedText {
 }
 
 export class WebFileServer extends EventEmitter {
-  private httpServer: http.Server | null = null;
+  private httpServer: http.Server | https.Server | null = null;
   private wss: WebSocketServer | null = null;
   private downloadPath: string;
   private deviceName: string;
@@ -34,6 +36,8 @@ export class WebFileServer extends EventEmitter {
   private sharedFiles: Map<string, SharedFileInfo> = new Map(); // fileId -> SharedFileInfo
   private clients: Map<string, MobileClient> = new Map(); // clientId -> MobileClient
   private sharedTexts: Map<string, SharedText> = new Map(); // textId -> SharedText
+  private isHttps: boolean = false;
+  private sslCert: { cert: string; key: string } | null = null;
 
   constructor(downloadPath: string, deviceName: string) {
     super();
@@ -43,14 +47,61 @@ export class WebFileServer extends EventEmitter {
 
   setDownloadPath(p: string) { this.downloadPath = p; }
 
-  async start(preferredPort: number = 80): Promise<number> {
+  private generateCertificate(): { cert: string; key: string } {
+    const attrs = [{ name: 'commonName', value: 'Airdrop Local' }];
+    const pems = selfsigned.generate(attrs, {
+      algorithm: 'sha256',
+      days: 365,
+      keySize: 2048,
+      extensions: [
+        { name: 'subjectAltName', altNames: [
+          { type: 2, value: 'localhost' },
+          { type: 7, ip: '127.0.0.1' },
+          { type: 7, ip: this.getLocalIP() }
+        ]}
+      ]
+    });
+    return { cert: pems.cert, key: pems.private };
+  }
+
+  async start(preferredPort: number = 443): Promise<number> {
     this.port = preferredPort;
+    
+    // 生成自签名证书
+    try {
+      this.sslCert = this.generateCertificate();
+      this.isHttps = true;
+    } catch (err) {
+      console.error('Failed to generate SSL certificate, falling back to HTTP:', err);
+      this.isHttps = false;
+      this.port = 80;
+    }
+
     return new Promise((resolve, reject) => {
-      this.httpServer = http.createServer((req, res) => this.handleRequest(req, res));
+      const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse) => this.handleRequest(req, res);
+      
+      if (this.isHttps && this.sslCert) {
+        this.httpServer = https.createServer({
+          cert: this.sslCert.cert,
+          key: this.sslCert.key
+        }, requestHandler);
+      } else {
+        this.httpServer = http.createServer(requestHandler);
+      }
+
       this.httpServer.on('error', (err: NodeJS.ErrnoException) => {
-        if (err.code === 'EADDRINUSE') { this.port++; this.httpServer?.listen(this.port); }
-        else reject(err);
+        if (err.code === 'EADDRINUSE') { 
+          this.port++; 
+          this.httpServer?.listen(this.port); 
+        } else if (err.code === 'EACCES' && this.isHttps) {
+          // 443 端口需要管理员权限，回退到 8443
+          this.port = 8443;
+          this.httpServer?.listen(this.port);
+        } else {
+          reject(err);
+        }
       });
+      
       this.httpServer.listen(this.port, () => {
         this.wss = new WebSocketServer({ server: this.httpServer! });
         this.wss.on('connection', (ws, req) => this.handleWebSocket(ws, req));
@@ -70,8 +121,10 @@ export class WebFileServer extends EventEmitter {
   }
 
   getURL(): string { 
-    // 端口80时不显示端口号
-    return this.port === 80 ? `http://${this.getLocalIP()}` : `http://${this.getLocalIP()}:${this.port}`; 
+    const protocol = this.isHttps ? 'https' : 'http';
+    const defaultPort = this.isHttps ? 443 : 80;
+    // 默认端口时不显示端口号
+    return this.port === defaultPort ? `${protocol}://${this.getLocalIP()}` : `${protocol}://${this.getLocalIP()}:${this.port}`; 
   }
 
   // 获取已连接的手机列表
