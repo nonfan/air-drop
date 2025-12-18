@@ -38,10 +38,14 @@ function App() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [openedId, setOpenedId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string>('');
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'>('idle');
+  const [updateInfo, setUpdateInfo] = useState<{ version?: string; percent?: number; error?: string }>({});
 
   useEffect(() => {
     window.windrop.getSettings().then(setSettings);
     window.windrop.getWebURL().then(setWebURL);
+    window.windrop.getAppVersion().then(setAppVersion);
     window.windrop.getTransferHistory().then(setTransferHistory);
     // 获取持久化的文本历史
     window.windrop.getTextHistory().then(setReceivedTexts);
@@ -109,6 +113,28 @@ function App() {
     // 只监听 text-history-updated，因为 main.ts 中 addTextRecord 会触发这个事件
     window.windrop.onTextHistoryUpdated(setReceivedTexts);
     window.windrop.onTextCopied((i) => setSharedTexts(prev => prev.filter(t => t.id !== i.id)));
+    
+    // 更新事件
+    window.windrop.onUpdateAvailable((info) => {
+      setUpdateStatus('available');
+      setUpdateInfo({ version: info.version });
+    });
+    window.windrop.onUpdateNotAvailable(() => {
+      setUpdateStatus('idle');
+      setToast('已是最新版本');
+      setTimeout(() => setToast(null), 2000);
+    });
+    window.windrop.onUpdateDownloadProgress((progress) => {
+      setUpdateStatus('downloading');
+      setUpdateInfo(prev => ({ ...prev, percent: Math.round(progress.percent) }));
+    });
+    window.windrop.onUpdateDownloaded(() => {
+      setUpdateStatus('ready');
+    });
+    window.windrop.onUpdateError((error) => {
+      setUpdateStatus('error');
+      setUpdateInfo({ error });
+    });
   }, []);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
@@ -192,6 +218,25 @@ function App() {
     }
   };
 
+  // 检查更新
+  const handleCheckUpdate = async () => {
+    setUpdateStatus('checking');
+    setUpdateInfo({});
+    await window.windrop.checkForUpdates();
+  };
+
+  // 下载更新
+  const handleDownloadUpdate = async () => {
+    setUpdateStatus('downloading');
+    setUpdateInfo(prev => ({ ...prev, percent: 0 }));
+    await window.windrop.downloadUpdate();
+  };
+
+  // 安装更新
+  const handleInstallUpdate = () => {
+    window.windrop.installUpdate();
+  };
+
   // 清空全部记录
   const handleClearAllHistory = async () => {
     await window.windrop.clearTransferHistory();
@@ -266,13 +311,44 @@ function App() {
                   <button className={`toggle ${settings?.showNotifications ? 'on' : ''}`} onClick={() => handleSaveSettings({ showNotifications: !settings?.showNotifications })}><span className="toggle-thumb"></span></button>
                 </div>
               </div>
-              <div className="mobile-tip">
-                <div className="tip-icon">📱</div>
-                <div className="tip-content">
-                  <span className="tip-title">手机传输</span>
-                  <span className="tip-url">{webURL}</span>
+              {/* 版本与更新 */}
+              <div className="settings-section">
+                <h3 className="settings-section-title">关于</h3>
+                <div className="setting-item">
+                  <div className="setting-label">
+                    <span className="setting-title">当前版本</span>
+                    <span className="setting-desc">v{appVersion}</span>
+                  </div>
+                  <div className="setting-actions">
+                    {updateStatus === 'idle' && (
+                      <button className="btn-outline" onClick={handleCheckUpdate}>检查更新</button>
+                    )}
+                    {updateStatus === 'checking' && (
+                      <button className="btn-outline" disabled>检查中...</button>
+                    )}
+                    {updateStatus === 'available' && (
+                      <button className="btn-primary" onClick={handleDownloadUpdate}>
+                        下载 v{updateInfo.version}
+                      </button>
+                    )}
+                    {updateStatus === 'downloading' && (
+                      <button className="btn-outline" disabled>
+                        下载中 {updateInfo.percent || 0}%
+                      </button>
+                    )}
+                    {updateStatus === 'ready' && (
+                      <button className="btn-primary" onClick={handleInstallUpdate}>
+                        立即安装
+                      </button>
+                    )}
+                    {updateStatus === 'error' && (
+                      <button className="btn-outline" onClick={handleCheckUpdate}>重试</button>
+                    )}
+                  </div>
                 </div>
-                <button className="btn-outline" onClick={() => window.windrop.copyWebURL()}>复制</button>
+                {updateStatus === 'error' && updateInfo.error && (
+                  <div className="update-error">更新失败: {updateInfo.error}</div>
+                )}
               </div>
             </div>
           )}
@@ -347,7 +423,10 @@ function App() {
                   <div className="empty-devices">
                     <div className="scanning"><span></span><span></span><span></span></div>
                     <p>正在搜索设备...</p>
-                    <button className="btn-qr-link" onClick={() => setShowQR(true)}>📱 手机扫码连接</button>
+                    <button className="btn-qr-link" onClick={() => setShowQR(true)}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+                      手机扫码连接
+                    </button>
                   </div>
                 ) : (
                   <div className="device-grid">
@@ -548,7 +627,26 @@ function App() {
                 <QRCodeSVG value={webURL} size={160} bgColor="#ffffff" fgColor="#000000" level="M" />
               </div>
               <p className="qr-url">{webURL}</p>
-              <button className="btn-outline" onClick={() => { window.windrop.copyWebURL(); }}>复制链接</button>
+              <button 
+                className={`btn-copy-url ${copiedId === 'url' ? 'copied' : ''}`} 
+                onClick={() => { 
+                  window.windrop.copyWebURL(); 
+                  setCopiedId('url');
+                  setTimeout(() => setCopiedId(null), 1500);
+                }}
+              >
+                {copiedId === 'url' ? (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>
+                    已复制
+                  </>
+                ) : (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    复制链接
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

@@ -5,6 +5,7 @@ import { DeviceDiscovery } from './services/discovery';
 import { FileTransferServer } from './services/transfer';
 import { WebFileServer } from './services/webServer';
 import Store from 'electron-store';
+import { autoUpdater } from 'electron-updater';
 import { APP_CONFIG, generateDeviceName } from './config';
 
 interface TransferRecord {
@@ -210,9 +211,12 @@ async function initServices() {
   discovery = new DeviceDiscovery(deviceName, port);
   discovery.on('device-found', (device) => {
     mainWindow?.webContents.send('device-found', device);
+    // 同步给 webServer，让手机也能看到其他电脑
+    webServer?.updateLANDevice({ ...device, type: 'pc' });
   });
   discovery.on('device-lost', (deviceId) => {
     mainWindow?.webContents.send('device-lost', deviceId);
+    webServer?.removeLANDevice(deviceId);
   });
   
   await discovery.start();
@@ -431,6 +435,61 @@ ipcMain.handle('show-file-in-folder', (_e, filePath: string) => {
   return false;
 });
 
+// 更新相关 IPC
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { available: result?.updateInfo?.version !== app.getVersion(), version: result?.updateInfo?.version };
+  } catch (error) {
+    return { available: false, error: String(error) };
+  }
+});
+
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+ipcMain.handle('download-update', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: String(error) };
+  }
+});
+
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall();
+});
+
+// 配置自动更新
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info: { version: string }) => {
+    mainWindow?.webContents.send('update-available', info);
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    mainWindow?.webContents.send('update-not-available');
+  });
+
+  autoUpdater.on('download-progress', (progress: { percent: number }) => {
+    mainWindow?.webContents.send('update-download-progress', progress);
+  });
+
+  autoUpdater.on('update-downloaded', () => {
+    mainWindow?.webContents.send('update-downloaded');
+    new Notification({
+      title: APP_CONFIG.APP_NAME,
+      body: '新版本已下载完成，重启应用即可更新'
+    }).show();
+  });
+
+  autoUpdater.on('error', (error: Error) => {
+    mainWindow?.webContents.send('update-error', error.message);
+  });
+}
+
 app.whenReady().then(async () => {
   deviceName = store.get('deviceName');
   downloadPath = store.get('downloadPath') || app.getPath('downloads');
@@ -439,6 +498,11 @@ app.whenReady().then(async () => {
   await createWindow();
   createTray();
   await initServices();
+  
+  // 设置自动更新
+  if (app.isPackaged) {
+    setupAutoUpdater();
+  }
 });
 
 app.on('window-all-closed', () => {

@@ -88,6 +88,16 @@ declare global {
       // Text transfer events
       onTextReceived: (callback: (info: { text: string; clientId: string; clientName: string; id?: string; timestamp?: number }) => void) => void;
       onTextCopied: (callback: (info: { id: string; text: string; clientId: string }) => void) => void;
+      // 应用更新
+      getAppVersion: () => Promise<string>;
+      checkForUpdates: () => Promise<{ available: boolean; version?: string; error?: string }>;
+      downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
+      installUpdate: () => void;
+      onUpdateAvailable: (callback: (info: any) => void) => void;
+      onUpdateNotAvailable: (callback: () => void) => void;
+      onUpdateDownloadProgress: (callback: (progress: any) => void) => void;
+      onUpdateDownloaded: (callback: () => void) => void;
+      onUpdateError: (callback: (error: string) => void) => void;
     };
   }
 }

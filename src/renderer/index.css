@@ -23,27 +23,16 @@
   box-sizing: border-box;
 }
 
-/* Global Scrollbar */
+/* Global Scrollbar - Hidden */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 0;
+  height: 0;
+  display: none;
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 body {
@@ -628,6 +617,8 @@ body {
 .transfer-page.two-column {
   flex-direction: row;
   gap: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .transfer-left {
@@ -639,6 +630,7 @@ body {
   padding-right: 20px;
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  max-height: 100%;
 }
 
 .transfer-right {
@@ -649,6 +641,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  max-height: 100%;
 }
 
 .transfer-right .section-header {
@@ -1514,6 +1507,37 @@ body {
   font-family: monospace;
 }
 
+/* Settings Section */
+.settings-section {
+  margin-top: 24px;
+}
+
+.settings-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+  padding-left: 4px;
+}
+
+.settings-section .setting-item {
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  border-bottom: none;
+}
+
+.update-error {
+  margin-top: 8px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
 /* Empty Devices Tip */
 .empty-devices .tip {
   font-size: 11px;
@@ -1523,19 +1547,29 @@ body {
 
 /* QR Code Link Button */
 .btn-qr-link {
-  background: none;
-  border: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
   color: var(--accent);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin-top: 8px;
-  transition: background 0.15s;
+  padding: 8px 14px;
+  border-radius: 8px;
+  margin-top: 12px;
+  transition: all 0.15s;
+}
+
+.btn-qr-link svg {
+  width: 16px;
+  height: 16px;
 }
 
 .btn-qr-link:hover {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 /* QR FAB Button */
@@ -1605,9 +1639,46 @@ body {
 }
 
 .qr-url {
-  font-size: 13px;
-  color: var(--accent);
-  font-family: monospace;
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  background: var(--bg-tertiary);
+  padding: 8px 14px;
+  border-radius: 8px;
+  letter-spacing: 0.3px;
+}
+
+.btn-copy-url {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 12px 20px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-copy-url svg {
+  width: 16px;
+  height: 16px;
+}
+
+.btn-copy-url:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.btn-copy-url.copied {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: var(--success);
+  color: var(--success);
 }
 
 /* Section Header */

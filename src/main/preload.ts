@@ -138,5 +138,26 @@ contextBridge.exposeInMainWorld('windrop', {
   onTextCopied: (callback: (info: { id: string; text: string; clientId: string }) => void) => {
     ipcRenderer.removeAllListeners('text-copied');
     ipcRenderer.on('text-copied', (_e, info) => callback(info));
+  },
+  
+  // 应用更新
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  onUpdateAvailable: (callback: (info: any) => void) => {
+    ipcRenderer.on('update-available', (_e, info) => callback(info));
+  },
+  onUpdateNotAvailable: (callback: () => void) => {
+    ipcRenderer.on('update-not-available', () => callback());
+  },
+  onUpdateDownloadProgress: (callback: (progress: any) => void) => {
+    ipcRenderer.on('update-download-progress', (_e, progress) => callback(progress));
+  },
+  onUpdateDownloaded: (callback: () => void) => {
+    ipcRenderer.on('update-downloaded', () => callback());
+  },
+  onUpdateError: (callback: (error: string) => void) => {
+    ipcRenderer.on('update-error', (_e, error) => callback(error));
   }
 });

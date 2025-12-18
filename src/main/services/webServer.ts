@@ -25,6 +25,15 @@ interface SharedText {
   timestamp: number;
 }
 
+// 局域网设备（电脑）
+interface LANDevice {
+  id: string;
+  name: string;
+  ip: string;
+  port: number;
+  type: 'pc';
+}
+
 export class WebFileServer extends EventEmitter {
   private httpServer: http.Server | null = null;
   private wss: WebSocketServer | null = null;
@@ -34,11 +43,52 @@ export class WebFileServer extends EventEmitter {
   private sharedFiles: Map<string, SharedFileInfo> = new Map(); // fileId -> SharedFileInfo
   private clients: Map<string, MobileClient> = new Map(); // clientId -> MobileClient
   private sharedTexts: Map<string, SharedText> = new Map(); // textId -> SharedText
+  private lanDevices: Map<string, LANDevice> = new Map(); // 局域网内的其他电脑
 
   constructor(downloadPath: string, deviceName: string) {
     super();
     this.downloadPath = downloadPath;
     this.deviceName = deviceName;
+  }
+
+  // 更新局域网设备列表（由 main.ts 调用）
+  updateLANDevice(device: LANDevice) {
+    this.lanDevices.set(device.id, device);
+    this.broadcastDeviceList();
+  }
+
+  removeLANDevice(deviceId: string) {
+    this.lanDevices.delete(deviceId);
+    this.broadcastDeviceList();
+  }
+
+  // 广播设备列表给所有手机
+  private broadcastDeviceList() {
+    for (const [clientId, client] of this.clients.entries()) {
+      if (client.ws.readyState === WebSocket.OPEN) {
+        // 每个手机收到的列表排除自己
+        const devices = this.getDeviceListForMobile(clientId);
+        client.ws.send(JSON.stringify({ type: 'devices-updated', devices }));
+      }
+    }
+  }
+
+  // 获取手机可见的设备列表（当前电脑 + 局域网电脑 + 其他手机）
+  private getDeviceListForMobile(excludeClientId?: string) {
+    const devices: { id: string; name: string; ip: string; type: 'pc' | 'mobile' }[] = [];
+    // 当前电脑（自己）- 放在第一位
+    devices.push({ id: 'host', name: this.deviceName, ip: this.getLocalIP(), type: 'pc' });
+    // 局域网内的其他电脑（暂时不支持直接发送，仅展示）
+    // for (const device of this.lanDevices.values()) {
+    //   devices.push({ id: device.id, name: device.name, ip: device.ip, type: 'pc' });
+    // }
+    // 其他已连接的手机
+    for (const [id, client] of this.clients.entries()) {
+      if (id !== excludeClientId) {
+        devices.push({ id, name: client.name, ip: client.ip, type: 'mobile' });
+      }
+    }
+    return devices;
   }
 
   setDownloadPath(p: string) { this.downloadPath = p; }
@@ -242,28 +292,62 @@ export class WebFileServer extends EventEmitter {
   }
 
   private handleWebSocket(ws: WebSocket, req: http.IncomingMessage) {
-    const clientId = uuidv4();
     const ip = (req.socket.remoteAddress || '').replace('::ffff:', '');
+    
+    // 检查是否已有同 IP 的客户端，如果有则复用或替换
+    let clientId = '';
     let clientName = `手机 ${ip.split('.').pop()}`;
+    let isReconnect = false;
+    let oldWs: WebSocket | null = null;
+    
+    for (const [id, existingClient] of this.clients.entries()) {
+      if (existingClient.ip === ip) {
+        // 同 IP 设备重新连接，复用 ID 和名称
+        clientId = id;
+        clientName = existingClient.name;
+        isReconnect = true;
+        oldWs = existingClient.ws;
+        break;
+      }
+    }
+    
+    if (!clientId) {
+      clientId = uuidv4();
+    }
 
     const client: MobileClient = { id: clientId, name: clientName, ws, ip, connectedAt: Date.now() };
     this.clients.set(clientId, client);
 
+    // 关闭旧连接（在新连接已设置后再关闭，避免 close 事件删除新记录）
+    if (oldWs && oldWs.readyState === WebSocket.OPEN) {
+      oldWs.close();
+    }
+
     // 发送客户端ID和当前文件列表
     ws.send(JSON.stringify({ type: 'connected', clientId, deviceName: this.deviceName }));
     const files = this.getFilesForClient(clientId);
-    if (files.length > 0) {
-      ws.send(JSON.stringify({ type: 'files-updated', files }));
+    const texts = this.getTextsForClient(clientId);
+    if (files.length > 0 || texts.length > 0) {
+      ws.send(JSON.stringify({ type: 'files-updated', files, texts }));
     }
+    // 发送设备列表
+    ws.send(JSON.stringify({ type: 'devices-updated', devices: this.getDeviceListForMobile(clientId) }));
 
-    // 通知前端有新手机连接
-    this.emit('client-connected', { id: clientId, name: clientName, ip });
+    // 通知前端有新手机连接（重连时更新）
+    if (isReconnect) {
+      this.emit('client-updated', { id: clientId, name: clientName, ip });
+    } else {
+      this.emit('client-connected', { id: clientId, name: clientName, ip });
+      // 新手机连接后，通知其他手机更新设备列表
+      this.broadcastDeviceList();
+    }
 
     let currentFileName = '';
     let currentFileSize = 0;
     let currentFilePath = '';
     let receivedSize = 0;
     let writeStream: fs.WriteStream | null = null;
+    let targetDeviceId = 'host'; // 默认发送给当前电脑
 
     ws.on('message', (data: Buffer, isBinary: boolean) => {
       if (!isBinary) {
@@ -273,23 +357,59 @@ export class WebFileServer extends EventEmitter {
             clientName = msg.name || clientName;
             client.name = clientName;
             this.emit('client-updated', { id: clientId, name: clientName, ip });
+            // 名称更新后通知其他手机
+            this.broadcastDeviceList();
+          } else if (msg.type === 'get-devices') {
+            // 手机请求设备列表
+            ws.send(JSON.stringify({ type: 'devices-updated', devices: this.getDeviceListForMobile(clientId) }));
           } else if (msg.type === 'file-start') {
             currentFileName = msg.name;
             currentFileSize = msg.size;
+            targetDeviceId = msg.targetId || 'host';
             receivedSize = 0;
             currentFilePath = this.getUniqueFilePath(currentFileName);
             writeStream = fs.createWriteStream(currentFilePath);
-            this.emit('upload-start', { name: currentFileName, size: currentFileSize, clientId, clientName });
+            this.emit('upload-start', { name: currentFileName, size: currentFileSize, clientId, clientName, targetId: targetDeviceId });
             ws.send(JSON.stringify({ type: 'ready' }));
           } else if (msg.type === 'file-end') {
             writeStream?.close();
             writeStream = null;
-            this.emit('upload-complete', { name: currentFileName, size: currentFileSize, filePath: currentFilePath, clientId, clientName });
+            
+            // 如果目标是其他手机，则中转文件
+            if (targetDeviceId !== 'host') {
+              const targetClient = this.clients.get(targetDeviceId);
+              if (targetClient) {
+                // 分享文件给目标手机
+                const fileId = this.shareFile(currentFilePath, targetDeviceId);
+                this.emit('file-relayed', { name: currentFileName, size: currentFileSize, from: clientName, to: targetClient.name, fileId });
+              }
+            }
+            
+            this.emit('upload-complete', { name: currentFileName, size: currentFileSize, filePath: currentFilePath, clientId, clientName, targetId: targetDeviceId });
             ws.send(JSON.stringify({ type: 'complete', name: currentFileName }));
           } else if (msg.type === 'send-text') {
-            // 手机发送文本到电脑
-            this.emit('text-received', { text: msg.text, clientId, clientName });
-            ws.send(JSON.stringify({ type: 'text-received' }));
+            const targetId = msg.targetId || 'host';
+            if (targetId === 'host') {
+              // 发送给当前电脑
+              this.emit('text-received', { text: msg.text, clientId, clientName });
+              ws.send(JSON.stringify({ type: 'text-received' }));
+            } else {
+              // 发送给其他手机（中转）
+              const targetClient = this.clients.get(targetId);
+              if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
+                // 直接推送给目标手机
+                targetClient.ws.send(JSON.stringify({ 
+                  type: 'text-from-mobile', 
+                  text: msg.text, 
+                  from: clientName,
+                  fromId: clientId
+                }));
+                ws.send(JSON.stringify({ type: 'text-received' }));
+                this.emit('text-relayed', { text: msg.text, from: clientName, to: targetClient.name });
+              } else {
+                ws.send(JSON.stringify({ type: 'error', message: '目标设备不在线' }));
+              }
+            }
           } else if (msg.type === 'copy-text') {
             // 手机复制了分享的文本
             const textInfo = this.sharedTexts.get(msg.id);
@@ -312,8 +432,14 @@ export class WebFileServer extends EventEmitter {
 
     ws.on('close', () => {
       writeStream?.close();
-      this.clients.delete(clientId);
-      this.emit('client-disconnected', { id: clientId, name: clientName, ip });
+      // 只有当前 ws 仍是该客户端的活动连接时才删除和通知
+      const currentClient = this.clients.get(clientId);
+      if (currentClient && currentClient.ws === ws) {
+        this.clients.delete(clientId);
+        this.emit('client-disconnected', { id: clientId, name: clientName, ip });
+        // 通知其他手机更新设备列表
+        this.broadcastDeviceList();
+      }
     });
   }
 
@@ -367,24 +493,25 @@ export class WebFileServer extends EventEmitter {
     .section-title { font-size: 13px; font-weight: 600; color: #fff; }
     .section-count { font-size: 11px; color: #6b6b74; }
     
-    .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; overflow: hidden; min-height: 160px; }
-    .drop-zone { height: 160px; padding: 32px 20px; text-align: center; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; overflow: hidden; }
+    .download-card { min-height: auto; }
+    .drop-zone { min-height: 140px; padding: 24px 20px; text-align: center; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .drop-zone.active { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); }
-    .drop-icon { width: 56px; height: 56px; margin-bottom: 12px; background: rgba(59,130,246,0.1); border-radius: 16px; display: flex; align-items: center; justify-content: center; }
-    .drop-icon svg { width: 24px; height: 24px; color: #3b82f6; }
-    .drop-text { color: #6b6b74; font-size: 13px; margin-bottom: 12px; }
+    .drop-icon { width: 48px; height: 48px; margin: 0 auto 12px; background: rgba(59,130,246,0.1); border-radius: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .drop-icon svg { width: 22px; height: 22px; color: #3b82f6; }
+    .drop-text { color: #6b6b74; font-size: 13px; margin-bottom: 8px; }
     .drop-hint { font-size: 11px; color: #4b4b54; }
     
     .file-input { display: none; }
     .file-list { border-top: 1px solid rgba(255,255,255,0.06); }
     .file-item { padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
     .file-item:last-child { border-bottom: none; }
-    .file-icon { width: 36px; height: 36px; background: rgba(59,130,246,0.1); border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .file-icon svg { width: 18px; height: 18px; color: #3b82f6; }
-    .file-info { flex: 1; min-width: 0; }
-    .file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .file-size { font-size: 11px; color: #6b6b74; margin-top: 2px; }
-    .file-remove { background: none; border: none; color: #6b6b74; width: 28px; height: 28px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+    .file-icon { width: 36px; height: 36px; min-width: 36px; background: rgba(59,130,246,0.1); border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .file-icon svg { width: 18px; height: 18px; color: #3b82f6; flex-shrink: 0; }
+    .file-info { flex: 1; min-width: 0; overflow: hidden; }
+    .file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .file-size { font-size: 11px; color: #6b6b74; margin-top: 2px; display: block; }
+    .file-remove { background: none; border: none; color: #6b6b74; width: 28px; height: 28px; min-width: 28px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .file-remove:active { background: rgba(239,68,68,0.1); color: #ef4444; }
     .progress-bar { height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 6px; overflow: hidden; }
     .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa); transition: width 0.2s; }
@@ -393,8 +520,9 @@ export class WebFileServer extends EventEmitter {
     .btn-primary { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #fff; box-shadow: 0 4px 12px rgba(59,130,246,0.3); }
     .btn-primary:active { transform: scale(0.98); }
     .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
-    .btn-download { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2); color: #22c55e; width: auto; padding: 8px 16px; font-size: 12px; font-weight: 600; border-radius: 8px; }
-    .btn-download:active { background: rgba(34,197,94,0.2); }
+    .btn-download { background: linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(34,197,94,0.1) 100%); border: 1px solid rgba(34,197,94,0.25); color: #4ade80; width: auto; padding: 6px 14px; font-size: 13px; font-weight: 500; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; flex-shrink: 0; }
+    .btn-download:active { background: rgba(34,197,94,0.25); transform: scale(0.96); }
+    .btn-download svg { width: 14px; height: 14px; }
     
     .status { text-align: center; padding: 10px 16px; border-radius: 10px; font-size: 12px; margin-top: 12px; }
     .status.success { color: #22c55e; background: rgba(34,197,94,0.1); }
@@ -405,6 +533,23 @@ export class WebFileServer extends EventEmitter {
     .download-section.show { display: block; }
     .download-item { padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
     .download-item + .download-item { border-top: 1px solid rgba(255,255,255,0.04); }
+    
+    .device-list { display: flex; flex-direction: row; gap: 10px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+    .device-list::-webkit-scrollbar { display: none; }
+    .device-item { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 16px; width: 100px; min-width: 100px; max-width: 100px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; cursor: pointer; transition: all 0.15s; flex-shrink: 0; position: relative; }
+    .device-item:active { transform: scale(0.96); }
+    .device-item.selected { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.3); }
+    .device-avatar { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .device-avatar svg { width: 20px; height: 20px; }
+    .device-avatar.pc { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .device-avatar.mobile { background: rgba(168,85,247,0.15); color: #c084fc; }
+    .device-item-info { text-align: center; }
+    .device-item-name { font-size: 12px; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; }
+    .device-item-type { font-size: 9px; color: #6b6b74; display: none; }
+    .device-check { position: absolute; top: 6px; right: 6px; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(0,0,0,0.3); }
+    .device-check svg { width: 10px; height: 10px; display: none; }
+    .device-item.selected .device-check { background: #3b82f6; border-color: #3b82f6; }
+    .device-item.selected .device-check svg { display: block; color: #fff; }
     
     .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
     .modal.show { display: flex; }
@@ -477,6 +622,15 @@ export class WebFileServer extends EventEmitter {
       </button>
     </div>
     
+    <!-- 设备选择器 -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">发送到</span>
+        <span class="section-count" id="deviceCount">1 台设备</span>
+      </div>
+      <div class="device-list" id="deviceList"></div>
+    </div>
+    
     <div class="section">
       <div class="mode-tabs" id="modeTabs">
         <button class="mode-tab active" data-mode="file" onclick="switchMode('file')">
@@ -501,7 +655,7 @@ export class WebFileServer extends EventEmitter {
         </div>
         <button class="btn btn-primary" id="uploadBtn" disabled style="margin-top:12px;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-          上传到电脑
+          发送文件
         </button>
       </div>
       
@@ -527,15 +681,15 @@ export class WebFileServer extends EventEmitter {
     
     <div class="section download-section" id="downloadSection">
       <div class="section-header">
-        <span class="section-title">电脑分享的文件</span>
+        <span class="section-title">传输记录</span>
         <span class="section-count" id="downloadCount"></span>
       </div>
-      <div class="card" id="downloadList"></div>
+      <div class="card download-card" id="downloadList"></div>
     </div>
     
     <div class="section text-section" id="textSection" style="display:none;">
       <div class="section-header">
-        <span class="section-title">电脑分享的文本</span>
+        <span class="section-title">传输记录</span>
       </div>
       <div class="card text-list-card" id="textList"></div>
     </div>
@@ -560,6 +714,8 @@ export class WebFileServer extends EventEmitter {
     let uploadWs = null;
     let selectedFiles = [];
     let myName = localStorage.getItem('airdrop_name') || '';
+    let devices = []; // 可用设备列表
+    let selectedDeviceId = 'host'; // 当前选中的目标设备
     
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
@@ -571,12 +727,13 @@ export class WebFileServer extends EventEmitter {
     const downloadList = document.getElementById('downloadList');
     const myNameEl = document.getElementById('myName');
     const myModelEl = document.getElementById('myModel');
-    const fileCountEl = document.getElementById('fileCount');
     const downloadCountEl = document.getElementById('downloadCount');
     const editModal = document.getElementById('editModal');
     const nameInput = document.getElementById('nameInput');
     const textSection = document.getElementById('textSection');
     const textList = document.getElementById('textList');
+    const deviceListEl = document.getElementById('deviceList');
+    const deviceCountEl = document.getElementById('deviceCount');
     const textInput = document.getElementById('textInput');
     const sendTextBtn = document.getElementById('sendTextBtn');
     
@@ -595,6 +752,18 @@ export class WebFileServer extends EventEmitter {
       toastEl.textContent = msg;
       toastEl.className = 'toast show' + (type ? ' ' + type : '');
       toastTimer = setTimeout(() => { toastEl.className = 'toast'; }, 2500);
+    }
+    
+    // 复制文本到剪贴板（用于接收其他手机发来的文本）
+    function copyTextToClipboard(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(textarea);
     }
     
     function switchMode(mode) {
@@ -643,12 +812,60 @@ export class WebFileServer extends EventEmitter {
     sendTextBtn.onclick = () => {
       const text = textInput.value.trim();
       if (text && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'send-text', text }));
+        ws.send(JSON.stringify({ type: 'send-text', text, targetId: selectedDeviceId }));
         textInput.value = '';
         charCountEl.textContent = '0';
         sendTextBtn.disabled = true;
       }
     };
+    
+    // 更新设备列表 UI
+    function updateDeviceList() {
+      deviceCountEl.textContent = devices.length + ' 台设备';
+      deviceListEl.innerHTML = devices.map(d => {
+        const isSelected = d.id === selectedDeviceId;
+        const avatarClass = d.type === 'pc' ? 'pc' : 'mobile';
+        // 简化名称显示
+        let shortName = d.name;
+        if (shortName.length > 10) {
+          shortName = shortName.slice(0, 10) + '...';
+        }
+        const icon = d.type === 'pc' 
+          ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
+          : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>';
+        return '<div class="device-item' + (isSelected ? ' selected' : '') + '" data-id="' + d.id + '" onclick="selectDevice(\\'' + d.id + '\\')">' +
+          '<div class="device-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></div>' +
+          '<div class="device-avatar ' + avatarClass + '">' + icon + '</div>' +
+          '<div class="device-item-info"><span class="device-item-name">' + shortName + '</span></div>' +
+        '</div>';
+      }).join('');
+      updateHeaderDevice();
+    }
+    
+    // 选择目标设备
+    function selectDevice(deviceId) {
+      selectedDeviceId = deviceId;
+      document.querySelectorAll('.device-item').forEach(el => {
+        el.classList.toggle('selected', el.dataset.id === deviceId);
+      });
+      updateHeaderDevice();
+    }
+    
+    // 更新顶部显示的连接设备
+    function updateHeaderDevice() {
+      const device = devices.find(d => d.id === selectedDeviceId);
+      if (device) {
+        deviceNameEl.textContent = device.name;
+        // 更新图标
+        const badge = document.querySelector('.device-badge');
+        if (badge) {
+          const iconSvg = device.type === 'pc' 
+            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>';
+          badge.innerHTML = iconSvg + '<span id="deviceName">' + device.name + '</span>';
+        }
+      }
+    }
     
     // 检测设备型号
     function getDeviceModel() {
@@ -716,13 +933,34 @@ export class WebFileServer extends EventEmitter {
         if (msg.type === 'connected') {
           clientId = msg.clientId;
           deviceNameEl.textContent = msg.deviceName;
+          // 初始化设备列表（至少有当前电脑）
+          if (devices.length === 0) {
+            devices = [{ id: 'host', name: msg.deviceName, type: 'pc' }];
+            updateDeviceList();
+          }
+        } else if (msg.type === 'devices-updated') {
+          // 更新设备列表
+          devices = msg.devices || [];
+          // 如果当前选中的设备不在列表中，重置为 host
+          if (!devices.find(d => d.id === selectedDeviceId)) {
+            selectedDeviceId = 'host';
+          }
+          updateDeviceList();
         } else if (msg.type === 'files-updated') {
           updateDownloadList(msg.files, msg.texts);
+        } else if (msg.type === 'text-from-mobile') {
+          // 收到其他手机发来的文本
+          showToast('收到来自 ' + msg.from + ' 的文本', 'success');
+          // 可以显示在文本列表中或自动复制
+          if (msg.text) {
+            copyTextToClipboard(msg.text);
+          }
         } else if (msg.type === 'text-received') {
           textInput.value = '';
           charCountEl.textContent = '0';
           sendTextBtn.disabled = true;
-          showToast('文本已发送到电脑', 'success');
+          const targetDevice = devices.find(d => d.id === selectedDeviceId);
+          showToast('文本已发送到 ' + (targetDevice?.name || '设备'), 'success');
         }
       };
       
@@ -793,7 +1031,7 @@ export class WebFileServer extends EventEmitter {
         downloadSection.classList.add('show');
         downloadCountEl.textContent = files.length + ' 个文件';
         downloadList.innerHTML = files.map(f => 
-          '<div class="download-item"><div class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg></div><div class="file-info"><div class="file-name">' + f.name + '</div><div class="file-size">' + formatSize(f.size) + '</div></div><a href="/download/' + clientId + '/' + f.id + '" class="btn btn-download">下载</a></div>'
+          '<div class="download-item"><div class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg></div><div class="file-info"><div class="file-name">' + f.name + '</div><div class="file-size">' + formatSize(f.size) + '</div></div><a href="/download/' + clientId + '/' + f.id + '" class="btn btn-download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>下载</a></div>'
         ).join('');
       } else {
         downloadSection.classList.remove('show');
@@ -882,7 +1120,8 @@ export class WebFileServer extends EventEmitter {
       return new Promise((resolve) => {
         const CHUNK = 64 * 1024;
         let offset = 0;
-        uploadWs.send(JSON.stringify({ type: 'file-start', name: file.name, size: file.size }));
+        // 发送文件开始消息，包含目标设备 ID
+        uploadWs.send(JSON.stringify({ type: 'file-start', name: file.name, size: file.size, targetId: selectedDeviceId }));
         const onMsg = (e) => {
           const msg = JSON.parse(e.data);
           if (msg.type === 'ready') sendChunk();
