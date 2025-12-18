@@ -4,7 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 interface Device { id: string; name: string; ip: string; port?: number; type: 'pc' | 'mobile'; }
 interface FileTransferInfo { transferId: string; senderName: string; files: { name: string; size: number }[]; totalSize: number; }
-interface Settings { deviceName: string; downloadPath: string; autoAccept: boolean; showNotifications: boolean; theme: 'dark' | 'light'; }
+interface Settings { deviceName: string; downloadPath: string; autoAccept: boolean; showNotifications: boolean; theme: 'system' | 'dark' | 'light'; }
 interface TransferProgress { percent: number; currentFile: string; }
 interface TransferRecord { id: string; fileName: string; filePath: string; size: number; from: string; timestamp: number; type: 'received' | 'sent'; }
 interface FileItem { name: string; size: number; path: string; }
@@ -45,8 +45,18 @@ function App() {
   useEffect(() => {
     window.windrop.getSettings().then((s) => {
       setSettings(s);
-      document.documentElement.setAttribute('data-theme', s.theme || 'dark');
+      applyTheme(s.theme || 'system');
     });
+    
+    // 监听系统主题变化
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemThemeChange = () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme-setting');
+      if (currentTheme === 'system') {
+        document.documentElement.setAttribute('data-theme', mediaQuery.matches ? 'dark' : 'light');
+      }
+    };
+    mediaQuery.addEventListener('change', handleSystemThemeChange);
     window.windrop.getWebURL().then(setWebURL);
     window.windrop.getAppVersion().then(setAppVersion);
     window.windrop.getTransferHistory().then(setTransferHistory);
@@ -190,11 +200,21 @@ function App() {
   const handleSaveSettings = async (s: Partial<Settings>) => {
     await window.windrop.setSettings(s);
     setSettings(prev => prev ? { ...prev, ...s } : null);
-    if (s.theme) document.documentElement.setAttribute('data-theme', s.theme);
+    if (s.theme) applyTheme(s.theme);
   };
 
   const formatSize = (b: number) => b < 1024 ? `${b} B` : b < 1048576 ? `${(b/1024).toFixed(1)} KB` : b < 1073741824 ? `${(b/1048576).toFixed(1)} MB` : `${(b/1073741824).toFixed(2)} GB`;
   const formatTime = (ts: number) => new Date(ts).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  
+  const applyTheme = (theme: 'system' | 'dark' | 'light') => {
+    document.documentElement.setAttribute('data-theme-setting', theme);
+    if (theme === 'system') {
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  };
 
   // 发送文本到手机
   const handleSendText = async () => {
@@ -333,13 +353,14 @@ function App() {
                 <div className="setting-item">
                   <div className="setting-label"><span className="setting-title">主题</span><span className="setting-desc">切换深色或浅色主题</span></div>
                   <div className="theme-switcher">
-                    <button className={`theme-btn ${settings?.theme === 'dark' ? 'active' : ''}`} onClick={() => handleSaveSettings({ theme: 'dark' })}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
-                      深色
+                    <button className={`theme-btn ${settings?.theme === 'system' ? 'active' : ''}`} onClick={() => handleSaveSettings({ theme: 'system' })} title="跟随系统">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
                     </button>
-                    <button className={`theme-btn ${settings?.theme === 'light' ? 'active' : ''}`} onClick={() => handleSaveSettings({ theme: 'light' })}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-                      浅色
+                    <button className={`theme-btn ${settings?.theme === 'light' ? 'active' : ''}`} onClick={() => handleSaveSettings({ theme: 'light' })} title="浅色">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                    </button>
+                    <button className={`theme-btn ${settings?.theme === 'dark' ? 'active' : ''}`} onClick={() => handleSaveSettings({ theme: 'dark' })} title="深色">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
                     </button>
                   </div>
                 </div>

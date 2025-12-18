@@ -30,6 +30,7 @@ interface StoreSchema {
   downloadPath: string;
   autoAccept: boolean;
   showNotifications: boolean;
+  theme: 'system' | 'dark' | 'light';
   transferHistory: TransferRecord[];
   textHistory: TextRecord[];
 }
@@ -40,6 +41,7 @@ const store = new Store<StoreSchema>({
     downloadPath: '',
     autoAccept: false,
     showNotifications: true,
+    theme: 'system',
     transferHistory: [],
     textHistory: []
   }

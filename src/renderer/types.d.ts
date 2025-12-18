@@ -17,7 +17,7 @@ export interface Settings {
   downloadPath: string;
   autoAccept: boolean;
   showNotifications: boolean;
-  theme: 'dark' | 'light';
+  theme: 'system' | 'dark' | 'light';
 }
 
 export interface TransferProgress {

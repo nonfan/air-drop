@@ -476,14 +476,14 @@ export class WebFileServer extends EventEmitter {
       --accent-light: #60a5fa;
     }
     [data-theme="light"] {
-      --bg-gradient: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
-      --bg-card: rgba(0,0,0,0.03);
-      --border-card: rgba(0,0,0,0.08);
-      --text-primary: #202124;
-      --text-secondary: #5f6368;
-      --text-muted: #80868b;
-      --accent: #1a73e8;
-      --accent-light: #4285f4;
+      --bg-gradient: linear-gradient(180deg, #f5f7fa 0%, #e8ecf1 100%);
+      --bg-card: #ffffff;
+      --border-card: #e0e4e8;
+      --text-primary: #1a1a1a;
+      --text-secondary: #4a4a4a;
+      --text-muted: #6b7280;
+      --accent: #2563eb;
+      --accent-light: #3b82f6;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif; background: var(--bg-gradient); min-height: 100vh; color: var(--text-primary); padding: 16px; padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: max(16px, env(safe-area-inset-bottom)); }
@@ -493,7 +493,9 @@ export class WebFileServer extends EventEmitter {
     .logo { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; }
     .logo svg { width: 28px; height: 28px; color: #3b82f6; filter: drop-shadow(0 0 8px rgba(59,130,246,0.4)); }
     h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
-    .device-info { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; }
+    .device-info { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+    .device-info-left { display: flex; align-items: center; gap: 8px; }
+    .device-info-right { display: flex; align-items: center; }
     .device-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: #60a5fa; }
     .device-badge svg { width: 14px; height: 14px; }
     .status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #22c55e; }
@@ -508,16 +510,16 @@ export class WebFileServer extends EventEmitter {
     .edit-btn { background: none; border: none; color: var(--text-muted); padding: 8px; cursor: pointer; border-radius: 8px; }
     .edit-btn:active { background: var(--bg-card); }
     
-    .theme-toggle { background: var(--bg-card); border: 1px solid var(--border-card); color: var(--text-muted); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-left: 8px; }
-    .theme-toggle svg { width: 16px; height: 16px; }
-    .theme-toggle .icon-light { display: none; }
-    [data-theme="light"] .theme-toggle .icon-dark { display: none; }
-    [data-theme="light"] .theme-toggle .icon-light { display: block; }
+    .theme-switcher { display: flex; background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 10px; padding: 3px; gap: 2px; }
+    .theme-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 28px; background: transparent; border: none; border-radius: 7px; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
+    .theme-btn svg { width: 16px; height: 16px; }
+    .theme-btn.active { background: rgba(255,255,255,0.1); color: var(--text-primary); }
+    [data-theme="light"] .theme-btn.active { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     
     .section { margin-bottom: 20px; }
     .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .section-title { font-size: 13px; font-weight: 600; color: #fff; }
-    .section-count { font-size: 11px; color: #6b6b74; }
+    .section-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .section-count { font-size: 11px; color: var(--text-muted); }
     
     .card { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 16px; overflow: hidden; }
     .download-card { min-height: auto; }
@@ -534,8 +536,9 @@ export class WebFileServer extends EventEmitter {
     .file-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 13px; color: var(--text-secondary); }
     .btn-clear-files { background: none; border: none; color: #ef4444; font-size: 13px; font-weight: 500; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
     .btn-clear-files:active { background: rgba(239,68,68,0.1); }
-    .file-list { background: rgba(0,0,0,0.2); border-radius: 12px; max-height: 200px; overflow-y: auto; }
-    .file-item { padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .file-list { background: rgba(0,0,0,0.05); border-radius: 12px; max-height: 200px; overflow-y: auto; }
+    [data-theme="light"] .file-list { background: rgba(0,0,0,0.03); }
+    .file-item { padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-card); }
     .file-item:last-child { border-bottom: none; }
     .file-icon { width: 32px; height: 32px; min-width: 32px; background: rgba(59,130,246,0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .file-icon svg { width: 16px; height: 16px; color: #3b82f6; flex-shrink: 0; }
@@ -569,7 +572,7 @@ export class WebFileServer extends EventEmitter {
     
     .device-list { display: flex; flex-direction: row; gap: 10px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
     .device-list::-webkit-scrollbar { display: none; }
-    .device-item { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 16px; width: 100px; min-width: 100px; max-width: 100px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; cursor: pointer; transition: all 0.15s; flex-shrink: 0; position: relative; }
+    .device-item { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 16px; width: 100px; min-width: 100px; max-width: 100px; background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 14px; cursor: pointer; transition: all 0.15s; flex-shrink: 0; position: relative; }
     .device-item:active { transform: scale(0.96); }
     .device-item.selected { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.3); }
     .device-avatar { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -584,39 +587,42 @@ export class WebFileServer extends EventEmitter {
     .device-item.selected .device-check { background: #3b82f6; border-color: #3b82f6; }
     .device-item.selected .device-check svg { display: block; color: #fff; }
     
-    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
     .modal.show { display: flex; }
-    .modal-content { background: #18181c; border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 24px; width: 100%; max-width: 320px; }
-    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; text-align: center; }
-    .modal-input { width: 100%; padding: 14px 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; color: #fff; font-size: 15px; outline: none; }
+    .modal-content { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 20px; padding: 24px; width: 100%; max-width: 320px; }
+    [data-theme="dark"] .modal-content { background: #18181c; }
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; text-align: center; color: var(--text-primary); }
+    .modal-input { width: 100%; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 12px; color: var(--text-primary); font-size: 15px; outline: none; }
+    [data-theme="dark"] .modal-input { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
     .modal-input:focus { border-color: #3b82f6; }
     .modal-btns { display: flex; gap: 10px; margin-top: 16px; }
     .modal-btns .btn { flex: 1; padding: 12px; }
-    .btn-cancel { background: rgba(255,255,255,0.05); color: #fff; }
+    .btn-cancel { background: var(--bg-card); border: 1px solid var(--border-card); color: var(--text-primary); }
+    [data-theme="dark"] .btn-cancel { background: rgba(255,255,255,0.05); border: none; }
     
-    .mode-tabs { display: flex; gap: 4px; background: rgba(255,255,255,0.03); border-radius: 10px; padding: 4px; margin-bottom: 12px; }
-    .mode-tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 12px; background: transparent; border: none; border-radius: 8px; color: #6b6b74; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+    .mode-tabs { display: flex; gap: 4px; background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 10px; padding: 4px; margin-bottom: 12px; }
+    .mode-tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 12px; background: transparent; border: none; border-radius: 8px; color: var(--text-muted); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
     .mode-tab svg { width: 16px; height: 16px; }
-    .mode-tab.active { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .mode-tab.active { background: var(--accent); color: #fff; }
     .mode-tab:active { transform: scale(0.98); }
     
     .text-card { padding: 0; height: 160px; display: flex; flex-direction: column; }
-    .text-card textarea { flex: 1; width: 100%; padding: 14px 16px; background: transparent; border: none; color: #fff; font-size: 14px; line-height: 1.5; resize: none; outline: none; font-family: inherit; }
-    .text-card textarea::placeholder { color: #4b4b54; }
+    .text-card textarea { flex: 1; width: 100%; padding: 14px 16px; background: transparent; border: none; color: var(--text-primary); font-size: 14px; line-height: 1.5; resize: none; outline: none; font-family: inherit; }
+    .text-card textarea::placeholder { color: var(--text-muted); }
     .text-card textarea { -webkit-user-select: text; user-select: text; }
     .text-card textarea:focus { background: rgba(59,130,246,0.03); }
-    .text-card textarea:focus::placeholder { color: #60a5fa; }
-    .text-actions { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid rgba(255,255,255,0.06); }
-    .paste-hint { display: flex; align-items: center; gap: 6px; color: #6b6b74; font-size: 12px; }
+    .text-card textarea:focus::placeholder { color: var(--accent-light); }
+    .text-actions { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--border-card); }
+    .paste-hint { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12px; }
     .paste-hint svg { width: 14px; height: 14px; }
     .paste-hint.hidden { display: none; }
-    .text-count { font-size: 11px; color: #4b4b54; }
+    .text-count { font-size: 11px; color: var(--text-muted); }
     
     .text-list-card { min-height: auto; }
     .text-item { position: relative; padding: 14px 16px; padding-right: 56px; cursor: pointer; transition: background 0.15s; }
     .text-item:active { background: rgba(139,92,246,0.08); }
     .text-item.copied { background: rgba(34,197,94,0.08); }
-    .text-item + .text-item { border-top: 1px solid rgba(255,255,255,0.04); }
+    .text-item + .text-item { border-top: 1px solid var(--border-card); }
     .text-from { font-size: 11px; color: #6b7280; margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
     .text-from svg { width: 12px; height: 12px; }
     .text-preview { font-size: 14px; line-height: 1.6; color: #e5e5e5; word-break: break-all; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -639,12 +645,23 @@ export class WebFileServer extends EventEmitter {
         <h1>Airdrop</h1>
       </div>
       <div class="device-info">
-        <span class="device-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span id="deviceName">-</span></span>
-        <span class="status-badge">已连接</span>
-        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
-          <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
-          <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-        </button>
+        <div class="device-info-left">
+          <span class="device-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span id="deviceName">-</span></span>
+          <span class="status-badge">已连接</span>
+        </div>
+        <div class="device-info-right">
+          <div class="theme-switcher">
+            <button class="theme-btn" data-theme="system" onclick="setTheme('system')" title="跟随系统">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            </button>
+            <button class="theme-btn" data-theme="light" onclick="setTheme('light')" title="浅色">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            </button>
+            <button class="theme-btn" data-theme="dark" onclick="setTheme('dark')" title="深色">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -754,14 +771,35 @@ export class WebFileServer extends EventEmitter {
   
   <script>
     // 主题初始化
-    const savedTheme = localStorage.getItem('airdrop_theme') || 'dark';
-    document.documentElement.setAttribute('data-theme', savedTheme);
+    const savedTheme = localStorage.getItem('airdrop_theme') || 'system';
+    applyTheme(savedTheme);
+    updateThemeButtons(savedTheme);
     
-    function toggleTheme() {
-      const current = document.documentElement.getAttribute('data-theme');
-      const next = current === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('airdrop_theme', next);
+    // 监听系统主题变化
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      const current = localStorage.getItem('airdrop_theme') || 'system';
+      if (current === 'system') applyTheme('system');
+    });
+    
+    function setTheme(theme) {
+      localStorage.setItem('airdrop_theme', theme);
+      applyTheme(theme);
+      updateThemeButtons(theme);
+    }
+    
+    function applyTheme(theme) {
+      if (theme === 'system') {
+        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+      } else {
+        document.documentElement.setAttribute('data-theme', theme);
+      }
+    }
+    
+    function updateThemeButtons(theme) {
+      document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === theme);
+      });
     }
     
     let clientId = null;
