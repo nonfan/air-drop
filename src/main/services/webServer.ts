@@ -465,8 +465,28 @@ export class WebFileServer extends EventEmitter {
   <meta name="theme-color" content="#0a0a0c">
   <title>Airdrop</title>
   <style>
+    :root {
+      --bg-gradient: linear-gradient(180deg, #0a0a0c 0%, #12121a 100%);
+      --bg-card: rgba(255,255,255,0.03);
+      --border-card: rgba(255,255,255,0.06);
+      --text-primary: #fff;
+      --text-secondary: #a0a0a8;
+      --text-muted: #6b6b74;
+      --accent: #3b82f6;
+      --accent-light: #60a5fa;
+    }
+    [data-theme="light"] {
+      --bg-gradient: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
+      --bg-card: rgba(0,0,0,0.03);
+      --border-card: rgba(0,0,0,0.08);
+      --text-primary: #202124;
+      --text-secondary: #5f6368;
+      --text-muted: #80868b;
+      --accent: #1a73e8;
+      --accent-light: #4285f4;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif; background: linear-gradient(180deg, #0a0a0c 0%, #12121a 100%); min-height: 100vh; color: #fff; padding: 16px; padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif; background: var(--bg-gradient); min-height: 100vh; color: var(--text-primary); padding: 16px; padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: max(16px, env(safe-area-inset-bottom)); }
     .container { max-width: 420px; margin: 0 auto; }
     
     .header { text-align: center; padding: 20px 0 16px; margin-bottom: 20px; }
@@ -480,32 +500,38 @@ export class WebFileServer extends EventEmitter {
     .status-badge::before { content: ''; width: 6px; height: 6px; background: #22c55e; border-radius: 50%; animation: pulse 2s infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     
-    .my-device { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
+    .my-device { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 16px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
     .my-avatar { width: 40px; height: 40px; background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
     .my-info { flex: 1; }
     .my-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-    .my-model { font-size: 11px; color: #6b6b74; margin-top: 2px; }
-    .edit-btn { background: none; border: none; color: #6b6b74; padding: 8px; cursor: pointer; border-radius: 8px; }
-    .edit-btn:active { background: rgba(255,255,255,0.05); }
+    .my-model { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .edit-btn { background: none; border: none; color: var(--text-muted); padding: 8px; cursor: pointer; border-radius: 8px; }
+    .edit-btn:active { background: var(--bg-card); }
+    
+    .theme-toggle { background: var(--bg-card); border: 1px solid var(--border-card); color: var(--text-muted); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-left: 8px; }
+    .theme-toggle svg { width: 16px; height: 16px; }
+    .theme-toggle .icon-light { display: none; }
+    [data-theme="light"] .theme-toggle .icon-dark { display: none; }
+    [data-theme="light"] .theme-toggle .icon-light { display: block; }
     
     .section { margin-bottom: 20px; }
     .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .section-title { font-size: 13px; font-weight: 600; color: #fff; }
     .section-count { font-size: 11px; color: #6b6b74; }
     
-    .card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; overflow: hidden; }
+    .card { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 16px; overflow: hidden; }
     .download-card { min-height: auto; }
     .drop-zone { min-height: 140px; padding: 24px 20px; text-align: center; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .drop-zone.active { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); }
     .drop-icon { width: 48px; height: 48px; margin: 0 auto 12px; background: rgba(59,130,246,0.1); border-radius: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .drop-icon svg { width: 22px; height: 22px; color: #3b82f6; }
-    .drop-text { color: #6b6b74; font-size: 13px; margin-bottom: 8px; }
-    .drop-hint { font-size: 11px; color: #4b4b54; }
+    .drop-text { color: var(--text-muted); font-size: 13px; margin-bottom: 8px; }
+    .drop-hint { font-size: 11px; color: var(--text-muted); opacity: 0.7; }
     
     .file-input { display: none; }
     .file-card { overflow: visible; }
     .file-list-container { padding: 12px 16px; }
-    .file-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 13px; color: #a0a0a8; }
+    .file-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 13px; color: var(--text-secondary); }
     .btn-clear-files { background: none; border: none; color: #ef4444; font-size: 13px; font-weight: 500; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
     .btn-clear-files:active { background: rgba(239,68,68,0.1); }
     .file-list { background: rgba(0,0,0,0.2); border-radius: 12px; max-height: 200px; overflow-y: auto; }
@@ -515,8 +541,8 @@ export class WebFileServer extends EventEmitter {
     .file-icon svg { width: 16px; height: 16px; color: #3b82f6; flex-shrink: 0; }
     .file-info { flex: 1; min-width: 0; overflow: hidden; }
     .file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-    .file-size { font-size: 11px; color: #6b6b74; margin-top: 2px; display: block; }
-    .file-remove { background: none; border: none; color: #6b6b74; width: 28px; height: 28px; min-width: 28px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .file-size { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: block; }
+    .file-remove { background: none; border: none; color: var(--text-muted); width: 28px; height: 28px; min-width: 28px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .file-remove:active { background: rgba(239,68,68,0.1); color: #ef4444; }
     .btn-add-more { background: none; border: none; color: #3b82f6; font-size: 13px; font-weight: 500; cursor: pointer; padding: 10px; width: 100%; text-align: left; }
     .btn-add-more:active { background: rgba(59,130,246,0.1); }
@@ -615,6 +641,10 @@ export class WebFileServer extends EventEmitter {
       <div class="device-info">
         <span class="device-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span id="deviceName">-</span></span>
         <span class="status-badge">已连接</span>
+        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+          <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+          <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        </button>
       </div>
     </div>
     
@@ -723,6 +753,17 @@ export class WebFileServer extends EventEmitter {
   <div class="toast" id="toast"></div>
   
   <script>
+    // 主题初始化
+    const savedTheme = localStorage.getItem('airdrop_theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('airdrop_theme', next);
+    }
+    
     let clientId = null;
     let ws = null;
     let uploadWs = null;

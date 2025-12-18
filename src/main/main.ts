@@ -322,7 +322,8 @@ ipcMain.handle('get-settings', () => ({
   deviceName: store.get('deviceName'),
   downloadPath: store.get('downloadPath'),
   autoAccept: store.get('autoAccept'),
-  showNotifications: store.get('showNotifications')
+  showNotifications: store.get('showNotifications'),
+  theme: store.get('theme') || 'dark'
 }));
 
 ipcMain.handle('set-settings', (_e, settings: Partial<StoreSchema>) => {
@@ -333,6 +334,7 @@ ipcMain.handle('set-settings', (_e, settings: Partial<StoreSchema>) => {
   }
   if (typeof settings.autoAccept === 'boolean') store.set('autoAccept', settings.autoAccept);
   if (typeof settings.showNotifications === 'boolean') store.set('showNotifications', settings.showNotifications);
+  if (settings.theme) store.set('theme', settings.theme);
 });
 
 ipcMain.handle('select-files', async () => {

@@ -4,7 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 interface Device { id: string; name: string; ip: string; port?: number; type: 'pc' | 'mobile'; }
 interface FileTransferInfo { transferId: string; senderName: string; files: { name: string; size: number }[]; totalSize: number; }
-interface Settings { deviceName: string; downloadPath: string; autoAccept: boolean; showNotifications: boolean; }
+interface Settings { deviceName: string; downloadPath: string; autoAccept: boolean; showNotifications: boolean; theme: 'dark' | 'light'; }
 interface TransferProgress { percent: number; currentFile: string; }
 interface TransferRecord { id: string; fileName: string; filePath: string; size: number; from: string; timestamp: number; type: 'received' | 'sent'; }
 interface FileItem { name: string; size: number; path: string; }
@@ -43,7 +43,10 @@ function App() {
   const [updateInfo, setUpdateInfo] = useState<{ version?: string; percent?: number; error?: string }>({});
 
   useEffect(() => {
-    window.windrop.getSettings().then(setSettings);
+    window.windrop.getSettings().then((s) => {
+      setSettings(s);
+      document.documentElement.setAttribute('data-theme', s.theme || 'dark');
+    });
     window.windrop.getWebURL().then(setWebURL);
     window.windrop.getAppVersion().then(setAppVersion);
     window.windrop.getTransferHistory().then(setTransferHistory);
@@ -187,6 +190,7 @@ function App() {
   const handleSaveSettings = async (s: Partial<Settings>) => {
     await window.windrop.setSettings(s);
     setSettings(prev => prev ? { ...prev, ...s } : null);
+    if (s.theme) document.documentElement.setAttribute('data-theme', s.theme);
   };
 
   const formatSize = (b: number) => b < 1024 ? `${b} B` : b < 1048576 ? `${(b/1024).toFixed(1)} KB` : b < 1073741824 ? `${(b/1048576).toFixed(1)} MB` : `${(b/1073741824).toFixed(2)} GB`;
@@ -325,6 +329,19 @@ function App() {
                 <div className="setting-item">
                   <div className="setting-label"><span className="setting-title">系统通知</span><span className="setting-desc">收到文件时显示通知</span></div>
                   <button className={`toggle ${settings?.showNotifications ? 'on' : ''}`} onClick={() => handleSaveSettings({ showNotifications: !settings?.showNotifications })}><span className="toggle-thumb"></span></button>
+                </div>
+                <div className="setting-item">
+                  <div className="setting-label"><span className="setting-title">主题</span><span className="setting-desc">切换深色或浅色主题</span></div>
+                  <div className="theme-switcher">
+                    <button className={`theme-btn ${settings?.theme === 'dark' ? 'active' : ''}`} onClick={() => handleSaveSettings({ theme: 'dark' })}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+                      深色
+                    </button>
+                    <button className={`theme-btn ${settings?.theme === 'light' ? 'active' : ''}`} onClick={() => handleSaveSettings({ theme: 'light' })}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                      浅色
+                    </button>
+                  </div>
                 </div>
               </div>
               {/* 版本与更新 */}
