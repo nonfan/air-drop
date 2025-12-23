@@ -160,9 +160,17 @@ function createTray() {
 }
 
 
+// 闪烁任务栏图标，提示有新消息
+function flashWindow() {
+  if (mainWindow && !mainWindow.isFocused()) {
+    mainWindow.flashFrame(true);
+  }
+}
+
 async function initServices() {
   transferServer = new FileTransferServer(downloadPath, deviceName, (info: { transferId: string; senderName: string; files: { name: string; size: number }[]; totalSize: number }) => {
     mainWindow?.webContents.send('incoming-file', info);
+    flashWindow();
     
     // Show notification
     if (store.get('showNotifications')) {
@@ -188,6 +196,7 @@ async function initServices() {
   
   transferServer.on('transfer-complete', (result: { transferId: string; success: boolean; files?: { name: string; path: string; size: number }[]; senderName?: string }) => {
     mainWindow?.webContents.send('transfer-complete', result);
+    flashWindow();
     // Add received files to history
     if (result.files) {
       for (const file of result.files) {
@@ -236,6 +245,7 @@ async function initServices() {
   
   webServer.on('upload-start', (info: { name: string; size: number; clientName?: string }) => {
     mainWindow?.webContents.send('web-upload-start', info);
+    flashWindow();
     if (store.get('showNotifications')) {
       new Notification({
         title: APP_CONFIG.APP_NAME,
@@ -250,6 +260,7 @@ async function initServices() {
 
   webServer.on('upload-complete', (info: { name: string; size: number; filePath?: string; clientName?: string }) => {
     mainWindow?.webContents.send('web-upload-complete', info);
+    flashWindow();
     // Add to transfer history
     addTransferRecord({
       fileName: info.name,
@@ -269,6 +280,7 @@ async function initServices() {
   // 手机连接/断开事件
   webServer.on('client-connected', (client: { id: string; name: string; model?: string; ip: string }) => {
     mainWindow?.webContents.send('mobile-connected', client);
+    flashWindow();
     if (store.get('showNotifications')) {
       new Notification({ title: APP_CONFIG.APP_NAME, body: `手机已连接: ${client.name}` }).show();
     }
@@ -299,6 +311,7 @@ async function initServices() {
     // 保存到文本历史
     const textRecord = addTextRecord({ text: info.text, from: info.clientName });
     mainWindow?.webContents.send('text-received', { ...info, id: textRecord.id, timestamp: textRecord.timestamp });
+    flashWindow();
     // 自动复制到剪贴板
     clipboard.writeText(info.text);
     if (store.get('showNotifications')) {
