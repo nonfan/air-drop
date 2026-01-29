@@ -1,8 +1,10 @@
 export interface Device {
   id: string;
   name: string;
+  model?: string;
   ip: string;
-  port: number;
+  port?: number;
+  type: 'pc' | 'mobile';
 }
 
 export interface FileTransferInfo {
@@ -34,6 +36,43 @@ export interface FileInfo {
   name: string;
   size: number;
   path: string;
+}
+
+export interface TransferRecord {
+  id: string;
+  fileName: string;
+  filePath: string;
+  size: number;
+  from: string;
+  timestamp: number;
+  type: 'received' | 'sent';
+}
+
+export interface FileItem {
+  name: string;
+  size: number;
+  path: string;
+}
+
+export interface SharedFile {
+  id: string;
+  name: string;
+  size: number;
+  path: string;
+  targetId: string;
+}
+
+export interface SharedText {
+  id: string;
+  text: string;
+  targetId: string;
+}
+
+export interface ReceivedText {
+  id: string;
+  text: string;
+  from: string;
+  timestamp: number;
 }
 
 declare global {
@@ -69,6 +108,7 @@ declare global {
       shareTextWeb: (text: string, targetClientId?: string) => Promise<string>;
       unshareTextWeb: (textId: string) => Promise<void>;
       getClipboardText: () => Promise<string>;
+      copyText: (text: string) => Promise<boolean>;
       getClipboardFiles: () => Promise<{ name: string; size: number; path: string }[]>;
       onMobileConnected: (callback: (client: { id: string; name: string; model?: string; ip: string }) => void) => void;
       onMobileDisconnected: (callback: (client: { id: string; name: string; model?: string; ip: string }) => void) => void;

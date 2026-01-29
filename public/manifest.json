@@ -1,0 +1,18 @@
+{
+  "name": "Airdrop",
+  "short_name": "Airdrop",
+  "description": "跨平台局域网文件传输工具",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f12",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

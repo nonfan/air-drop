@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld('windrop', {
   shareTextWeb: (text: string, targetClientId?: string) => ipcRenderer.invoke('share-text-web', text, targetClientId),
   unshareTextWeb: (textId: string) => ipcRenderer.invoke('unshare-text-web', textId),
   getClipboardText: () => ipcRenderer.invoke('get-clipboard-text'),
+  copyText: (text: string) => ipcRenderer.invoke('copy-text', text),
   getClipboardFiles: () => ipcRenderer.invoke('get-clipboard-files'),
   
   // Mobile client events
@@ -109,12 +110,16 @@ contextBridge.exposeInMainWorld('windrop', {
   onWebUploadComplete: (callback: (info: { name: string; size: number }) => void) => {
     ipcRenderer.on('web-upload-complete', (_e, info) => callback(info));
   },
+  onWebDownloadFailed: (callback: (info: { fileName: string; filePath: string; clientName: string }) => void) => {
+    ipcRenderer.on('web-download-failed', (_e, info) => callback(info));
+  },
 
   // Transfer history
   getTransferHistory: () => ipcRenderer.invoke('get-transfer-history'),
   clearTransferHistory: () => ipcRenderer.invoke('clear-transfer-history'),
   openFile: (filePath: string) => ipcRenderer.invoke('open-file', filePath),
   showFileInFolder: (filePath: string) => ipcRenderer.invoke('show-file-in-folder', filePath),
+  copyImageToClipboard: (filePath: string) => ipcRenderer.invoke('copy-image-to-clipboard', filePath),
   onTransferHistoryUpdated: (callback: (history: any[]) => void) => {
     ipcRenderer.on('transfer-history-updated', (_e, history) => callback(history));
   },

@@ -9,6 +9,7 @@ export interface Device {
   name: string;
   ip: string;
   port: number;
+  peerId?: string;
 }
 
 export class DeviceDiscovery extends EventEmitter {
@@ -19,6 +20,8 @@ export class DeviceDiscovery extends EventEmitter {
   private deviceName: string;
   private port: number;
   private localIPs: Set<string>;
+  private peerId: string = '';
+  private publishedService: any = null;
 
   constructor(deviceName: string, port: number) {
     super();
@@ -44,28 +47,48 @@ export class DeviceDiscovery extends EventEmitter {
     return ips;
   }
 
-  async start(): Promise<void> {
+  async start(peerId?: string): Promise<void> {
+    if (peerId) {
+      this.peerId = peerId;
+    }
+    
+    console.log('[Discovery] Starting device discovery service...');
+    console.log('[Discovery] Device ID:', this.deviceId);
+    console.log('[Discovery] Device Name:', this.deviceName);
+    console.log('[Discovery] Port:', this.port);
+    console.log('[Discovery] Local IPs:', Array.from(this.localIPs));
+    
     // Publish this device with unique name to avoid conflicts
     const uniqueName = `${this.deviceName}-${this.deviceId.slice(0, 4)}`;
     try {
-      this.bonjour.publish({
+      this.publishedService = this.bonjour.publish({
         name: uniqueName,
         type: APP_CONFIG.SERVICE_TYPE,
         port: this.port,
-        txt: { id: this.deviceId, displayName: this.deviceName }
+        txt: { 
+          id: this.deviceId, 
+          displayName: this.deviceName,
+          peerId: this.peerId || ''
+        }
       });
+      console.log('[Discovery] Published service:', uniqueName);
     } catch (err) {
-      console.error('Failed to publish service:', err);
+      console.error('[Discovery] Failed to publish service:', err);
     }
 
     // Browse for other devices
+    console.log('[Discovery] Starting to browse for devices...');
     this.browser = this.bonjour.find({ type: APP_CONFIG.SERVICE_TYPE }, (service: Service) => {
+      console.log('[Discovery] Found service:', service.name, service.addresses);
       this.handleServiceFound(service);
     });
 
     this.browser.on('down', (service: Service) => {
+      console.log('[Discovery] Service went down:', service.name);
       this.handleServiceLost(service);
     });
+    
+    console.log('[Discovery] Device discovery service started');
   }
 
   private handleServiceFound(service: Service): void {
@@ -90,11 +113,13 @@ export class DeviceDiscovery extends EventEmitter {
     }
     
     const displayName = txt?.displayName || service.name;
+    const peerId = txt?.peerId || '';
     const device: Device = {
       id,
       name: displayName,
       ip,
-      port: service.port
+      port: service.port,
+      peerId: peerId || undefined
     };
 
     this.devices.set(id, device);
@@ -111,6 +136,30 @@ export class DeviceDiscovery extends EventEmitter {
 
   getDevices(): Device[] {
     return Array.from(this.devices.values());
+  }
+
+  updatePeerId(peerId: string): void {
+    this.peerId = peerId;
+    // Republish service with updated peerId
+    if (this.publishedService) {
+      this.bonjour.unpublishAll();
+      const uniqueName = `${this.deviceName}-${this.deviceId.slice(0, 4)}`;
+      try {
+        this.publishedService = this.bonjour.publish({
+          name: uniqueName,
+          type: APP_CONFIG.SERVICE_TYPE,
+          port: this.port,
+          txt: { 
+            id: this.deviceId, 
+            displayName: this.deviceName,
+            peerId: this.peerId
+          }
+        });
+        console.log('Updated Bonjour service with peerId:', peerId);
+      } catch (err) {
+        console.error('Failed to republish service:', err);
+      }
+    }
   }
 
   stop(): void {

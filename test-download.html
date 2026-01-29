@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Download</title>
+</head>
+<body>
+    <h1>Test File Download</h1>
+    <button onclick="testDownload()">Test Download</button>
+    <div id="log"></div>
+
+    <script>
+        async function testDownload() {
+            const log = document.getElementById('log');
+            log.innerHTML = '';
+            
+            function addLog(msg) {
+                log.innerHTML += msg + '<br>';
+                console.log(msg);
+            }
+            
+            try {
+                // 替换为实际的下载 URL
+                const url = 'http://192.168.1.5/download/YOUR_CLIENT_ID/YOUR_FILE_ID';
+                
+                addLog('Starting download from: ' + url);
+                
+                const response = await fetch(url);
+                
+                addLog('Response status: ' + response.status);
+                addLog('Response ok: ' + response.ok);
+                
+                // 打印所有响应头
+                addLog('Response headers:');
+                for (const [key, value] of response.headers.entries()) {
+                    addLog(`  ${key}: ${value}`);
+                }
+                
+                const contentLength = response.headers.get('content-length');
+                addLog('Content-Length: ' + contentLength);
+                
+                if (!response.body) {
+                    addLog('ERROR: response.body is null!');
+                    return;
+                }
+                
+                const reader = response.body.getReader();
+                const chunks = [];
+                let receivedSize = 0;
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) break;
+                    
+                    chunks.push(value);
+                    receivedSize += value.length;
+                    
+                    if (receivedSize % (1024 * 1024) < value.length) { // 每 1MB 记录一次
+                        addLog(`Downloaded: ${receivedSize} bytes`);
+                    }
+                }
+                
+                addLog(`Total downloaded: ${receivedSize} bytes`);
+                
+                const blob = new Blob(chunks);
+                addLog(`Blob size: ${blob.size} bytes`);
+                
+                // 触发下载
+                const blobUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = 'test-file.bin';
+                link.click();
+                
+                addLog('Download triggered!');
+                
+            } catch (error) {
+                addLog('ERROR: ' + error.message);
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

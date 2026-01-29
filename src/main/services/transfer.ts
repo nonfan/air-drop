@@ -170,7 +170,17 @@ export class FileTransferServer extends EventEmitter {
     
     const file = transfer.files[transfer.currentFileIndex];
     if (file?.writeStream) {
-      file.writeStream.write(data);
+      // Handle backpressure on write stream
+      const canWrite = file.writeStream.write(data);
+      
+      if (!canWrite) {
+        // Pause WebSocket if write stream is full
+        ws.pause();
+        file.writeStream.once('drain', () => {
+          ws.resume();
+        });
+      }
+      
       file.receivedSize = (file.receivedSize || 0) + data.length;
       transfer.receivedSize += data.length;
       
@@ -313,19 +323,73 @@ export class FileTransferServer extends EventEmitter {
   private streamFile(ws: WebSocket, filePath: string, chunkSize: number, onChunk: (size: number, stream: fs.ReadStream) => void): Promise<void> {
     return new Promise((resolve, reject) => {
       const readStream = fs.createReadStream(filePath, { highWaterMark: chunkSize });
+      let isPaused = false;
+      
+      const sendChunk = (chunk: Buffer) => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          readStream.destroy();
+          reject(new Error('WebSocket closed'));
+          return;
+        }
+        
+        // Check if we can send (backpressure handling)
+        const canSend = ws.bufferedAmount < chunkSize * 4; // Allow 4 chunks in buffer
+        
+        if (canSend) {
+          ws.send(chunk, (err) => {
+            if (err) {
+              readStream.destroy();
+              reject(err);
+            }
+          });
+          onChunk(chunk.length, readStream);
+        } else {
+          // Pause reading if buffer is full
+          if (!isPaused) {
+            readStream.pause();
+            isPaused = true;
+          }
+          
+          // Wait for buffer to drain
+          const checkBuffer = setInterval(() => {
+            if (ws.bufferedAmount < chunkSize * 2) {
+              clearInterval(checkBuffer);
+              if (isPaused) {
+                readStream.resume();
+                isPaused = false;
+              }
+              ws.send(chunk, (err) => {
+                if (err) {
+                  readStream.destroy();
+                  reject(err);
+                }
+              });
+              onChunk(chunk.length, readStream);
+            }
+          }, 10);
+        }
+      };
       
       readStream.on('data', (chunk: Buffer | string) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(chunk);
-          onChunk(typeof chunk === 'string' ? chunk.length : chunk.length, readStream);
-        } else {
-          readStream.destroy();
-        }
+        if (typeof chunk === 'string') return;
+        
+        const buffer = chunk as Buffer;
+        sendChunk(buffer);
       });
       
-      readStream.on('end', resolve);
-      readStream.on('error', reject);
-      readStream.on('close', resolve);
+      readStream.on('end', () => {
+        // Wait for buffer to drain before resolving
+        const waitForDrain = setInterval(() => {
+          if (ws.bufferedAmount === 0) {
+            clearInterval(waitForDrain);
+            resolve();
+          }
+        }, 10);
+      });
+      
+      readStream.on('error', (err) => {
+        reject(err);
+      });
     });
   }
 

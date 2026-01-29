@@ -1,23 +1,25 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { WebSocketServer, WebSocket } from 'ws';
+import { Server as SocketIOServer, Socket } from 'socket.io';
 import { EventEmitter } from 'events';
 import { networkInterfaces } from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import { app } from 'electron';
+import Busboy from 'busboy';
 
 interface MobileClient {
   id: string;
   name: string;
-  model: string; // 设备型号
-  ws: WebSocket;
+  model: string;
+  socket: Socket;
   ip: string;
   connectedAt: number;
 }
 
 interface SharedFileInfo {
   filePath: string;
-  targetClientId: string | null; // null = 所有人可见, 否则只有指定客户端可见
+  targetClientId: string | null;
 }
 
 interface SharedText {
@@ -26,7 +28,6 @@ interface SharedText {
   timestamp: number;
 }
 
-// 局域网设备（电脑）
 interface LANDevice {
   id: string;
   name: string;
@@ -37,14 +38,14 @@ interface LANDevice {
 
 export class WebFileServer extends EventEmitter {
   private httpServer: http.Server | null = null;
-  private wss: WebSocketServer | null = null;
+  private io: SocketIOServer | null = null;
   private downloadPath: string;
   private deviceName: string;
   private port: number = 8080;
-  private sharedFiles: Map<string, SharedFileInfo> = new Map(); // fileId -> SharedFileInfo
-  private clients: Map<string, MobileClient> = new Map(); // clientId -> MobileClient
-  private sharedTexts: Map<string, SharedText> = new Map(); // textId -> SharedText
-  private lanDevices: Map<string, LANDevice> = new Map(); // 局域网内的其他电脑
+  private sharedFiles: Map<string, SharedFileInfo> = new Map();
+  private clients: Map<string, MobileClient> = new Map();
+  private sharedTexts: Map<string, SharedText> = new Map();
+  private lanDevices: Map<string, LANDevice> = new Map();
 
   constructor(downloadPath: string, deviceName: string) {
     super();
@@ -52,7 +53,6 @@ export class WebFileServer extends EventEmitter {
     this.deviceName = deviceName;
   }
 
-  // 更新局域网设备列表（由 main.ts 调用）
   updateLANDevice(device: LANDevice) {
     this.lanDevices.set(device.id, device);
     this.broadcastDeviceList();
@@ -63,27 +63,18 @@ export class WebFileServer extends EventEmitter {
     this.broadcastDeviceList();
   }
 
-  // 广播设备列表给所有手机
   private broadcastDeviceList() {
     for (const [clientId, client] of this.clients.entries()) {
-      if (client.ws.readyState === WebSocket.OPEN) {
-        // 每个手机收到的列表排除自己
+      if (client.socket.connected) {
         const devices = this.getDeviceListForMobile(clientId);
-        client.ws.send(JSON.stringify({ type: 'devices-updated', devices }));
+        client.socket.emit('devices-updated', { devices });
       }
     }
   }
 
-  // 获取手机可见的设备列表（当前电脑 + 局域网电脑 + 其他手机）
   private getDeviceListForMobile(excludeClientId?: string) {
     const devices: { id: string; name: string; model: string; ip: string; type: 'pc' | 'mobile' }[] = [];
-    // 当前电脑（自己）- 放在第一位
     devices.push({ id: 'host', name: this.deviceName, model: 'Windows', ip: this.getLocalIP(), type: 'pc' });
-    // 局域网内的其他电脑（暂时不支持直接发送，仅展示）
-    // for (const device of this.lanDevices.values()) {
-    //   devices.push({ id: device.id, name: device.name, model: '', ip: device.ip, type: 'pc' });
-    // }
-    // 其他已连接的手机
     for (const [id, client] of this.clients.entries()) {
       if (id !== excludeClientId) {
         devices.push({ id, name: client.name, model: client.model, ip: client.ip, type: 'mobile' });
@@ -97,7 +88,13 @@ export class WebFileServer extends EventEmitter {
   async start(preferredPort: number = 8080): Promise<number> {
     this.port = preferredPort;
     return new Promise((resolve, reject) => {
-      this.httpServer = http.createServer((req, res) => this.handleRequest(req, res));
+      this.httpServer = http.createServer((req, res) => this.handleRequest(req, res)) as any;
+      
+      if (!this.httpServer) {
+        reject(new Error('Failed to create server'));
+        return;
+      }
+      
       this.httpServer.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE' || err.code === 'EACCES') { 
           this.port++; 
@@ -107,9 +104,19 @@ export class WebFileServer extends EventEmitter {
         }
       });
       this.httpServer.listen(this.port, '0.0.0.0', () => {
-        this.wss = new WebSocketServer({ server: this.httpServer! });
-        this.wss.on('connection', (ws, req) => this.handleWebSocket(ws, req));
-        console.log(`Web server started on port ${this.port}`);
+        // 初始化 Socket.IO
+        this.io = new SocketIOServer(this.httpServer!, {
+          cors: {
+            origin: '*',
+            methods: ['GET', 'POST']
+          },
+          maxHttpBufferSize: 100 * 1024 * 1024, // 100MB 最大消息大小
+          pingTimeout: 60000,
+          pingInterval: 25000
+        });
+        
+        this.io.on('connection', (socket) => this.handleSocketConnection(socket));
+        console.log(`Web server with Socket.IO started on http://0.0.0.0:${this.port}`);
         resolve(this.port);
       });
     });
@@ -117,11 +124,43 @@ export class WebFileServer extends EventEmitter {
 
   getLocalIP(): string {
     const nets = networkInterfaces();
+    const addresses: string[] = [];
+    
     for (const name of Object.keys(nets)) {
-      for (const net of nets[name] || []) {
-        if (net.family === 'IPv4' && !net.internal) return net.address;
+      const interfaces = nets[name];
+      if (!interfaces) continue;
+      
+      for (const net of interfaces) {
+        // Skip internal (loopback) addresses
+        if (net.internal) continue;
+        
+        // Check for IPv4 (family can be string 'IPv4' or number 4)
+        const isIPv4 = net.family === 'IPv4' || (net.family as any) === 4;
+        if (isIPv4 && net.address) {
+          addresses.push(net.address);
+        }
       }
     }
+    
+    // Prefer 192.168.x.x addresses (common home networks)
+    const preferred = addresses.find(addr => addr.startsWith('192.168.'));
+    if (preferred) return preferred;
+    
+    // Try 10.x.x.x (another common private network range)
+    const private10 = addresses.find(addr => addr.startsWith('10.'));
+    if (private10) return private10;
+    
+    // Try 172.16-31.x.x (another private network range)
+    const private172 = addresses.find(addr => {
+      const parts = addr.split('.');
+      return parts[0] === '172' && parseInt(parts[1]) >= 16 && parseInt(parts[1]) <= 31;
+    });
+    if (private172) return private172;
+    
+    // Otherwise use the first available address
+    if (addresses.length > 0) return addresses[0];
+    
+    console.warn('No external IPv4 address found, using localhost');
     return '127.0.0.1';
   }
 
@@ -129,12 +168,13 @@ export class WebFileServer extends EventEmitter {
     return `http://${this.getLocalIP()}:${this.port}`; 
   }
 
-  // 获取已连接的手机列表
   getConnectedClients(): { id: string; name: string; ip: string }[] {
-    return Array.from(this.clients.values()).map(c => ({ id: c.id, name: c.name, ip: c.ip }));
+    const localIP = this.getLocalIP();
+    return Array.from(this.clients.values())
+      .filter(c => c.ip !== localIP) // 过滤掉本机 IP
+      .map(c => ({ id: c.id, name: c.name, ip: c.ip }));
   }
 
-  // 从请求IP获取对应的clientId
   private getClientIdFromRequest(req: http.IncomingMessage): string {
     const ip = (req.socket.remoteAddress || '').replace('::ffff:', '');
     for (const [clientId, client] of this.clients.entries()) {
@@ -145,32 +185,126 @@ export class WebFileServer extends EventEmitter {
 
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
     const url = req.url || '/';
+    
+    // 添加调试日志
+    console.log(`[HTTP] ${req.method} ${url}`);
+    
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
 
+    const isDev = process.env.NODE_ENV === 'development';
+
+    // 开发模式：代理 Vite 相关请求
+    if (isDev && (
+      url.startsWith('/@') ||           // Vite 内部请求 (/@vite/client, @react-refresh)
+      url.startsWith('/src/') ||        // 源码文件
+      url.startsWith('/node_modules/') || // 依赖
+      url.endsWith('.tsx') ||           // TypeScript 文件
+      url.endsWith('.ts') ||
+      url.endsWith('.jsx') ||
+      url.endsWith('.js') ||
+      url.endsWith('.css')
+    )) {
+      this.proxyToVite(req, res);
+      return;
+    }
+
     if (url === '/' || url === '/index.html') {
       this.serveHTML(res);
+    } else if (url.startsWith('/styles/')) {
+      this.serveTemplateFile(url.replace('/styles/', ''), 'text/css', res);
+    } else if (url.startsWith('/scripts/')) {
+      this.serveTemplateFile(url.replace('/scripts/', ''), 'application/javascript', res);
+    } else if (url === '/icon.png' || url === '/manifest.json' || url.startsWith('/assets/') || /\.(png|jpg|jpeg|svg|ico|json)$/.test(url)) {
+      this.serveStaticFile(url, res);
     } else if (url.startsWith('/api/info/')) {
       const clientId = url.replace('/api/info/', '');
       this.handleApiInfo(clientId, res);
+    } else if (url === '/api/upload' && req.method === 'POST') {
+      console.log('[HTTP] Handling file upload');
+      this.handleUpload(req, res);
     } else if (url.startsWith('/download/')) {
       const parts = url.replace('/download/', '').split('/');
       if (parts.length === 2) {
-        // /download/clientId/fileId
         this.handleDownload(parts[0], parts[1], res);
       } else if (parts.length === 1) {
-        // /download/fileId (兼容旧格式，从请求中获取clientId)
         const clientId = this.getClientIdFromRequest(req);
         this.handleDownload(clientId, parts[0], res);
       } else {
         res.writeHead(404); res.end('Invalid download URL');
       }
     } else {
+      console.log(`[HTTP] 404 Not Found: ${url}`);
       res.writeHead(404); res.end('Not Found');
     }
+  }
+
+  private serveStaticFile(url: string, res: http.ServerResponse) {
+    // 处理 /assets/ 路径或带哈希的资源文件
+    let filePath: string;
+    
+    if (url.startsWith('/assets/')) {
+      // 从 src/web/assets 或 dist/web/assets 提供文件
+      const assetName = url.replace('/assets/', '');
+      const distPath = path.join(__dirname, '../../dist/web/assets', assetName);
+      const srcPath = path.join(__dirname, '../../src/web/assets', assetName);
+      
+      filePath = fs.existsSync(distPath) ? distPath : srcPath;
+    } else {
+      // 尝试多个可能的位置
+      const fileName = path.basename(url);
+      const possiblePaths = [
+        path.join(__dirname, '../../public', url),
+        path.join(__dirname, '../../dist/web', url),
+        path.join(__dirname, '../../dist/web/assets', fileName),
+        path.join(__dirname, '../../src/web/assets', fileName),
+        path.join(__dirname, '../../public', fileName)
+      ];
+      
+      // 找到第一个存在的文件
+      filePath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0];
+    }
+    
+    if (!fs.existsSync(filePath)) {
+      // 静默处理 404，因为使用 vite-plugin-singlefile 时资源已内联
+      // 只在开发模式下输出警告
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`Static file not found: ${url} (资源可能已内联到 HTML)`);
+      }
+      res.writeHead(404);
+      res.end();
+      return;
+    }
+
+    const ext = path.extname(filePath);
+    const contentTypes: { [key: string]: string } = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.svg': 'image/svg+xml',
+      '.json': 'application/json',
+      '.ico': 'image/x-icon'
+    };
+
+    const contentType = contentTypes[ext] || 'application/octet-stream';
+    res.writeHead(200, { 'Content-Type': contentType });
+    fs.createReadStream(filePath).pipe(res);
+  }
+
+  private serveTemplateFile(fileName: string, contentType: string, res: http.ServerResponse) {
+    const templatePath = path.join(__dirname, '../templates', fileName);
+    
+    if (!fs.existsSync(templatePath)) {
+      res.writeHead(404);
+      res.end('Template not found');
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': contentType + '; charset=utf-8' });
+    fs.createReadStream(templatePath).pipe(res);
   }
 
   private handleApiInfo(clientId: string, res: http.ServerResponse) {
@@ -179,10 +313,167 @@ export class WebFileServer extends EventEmitter {
     res.end(JSON.stringify({ deviceName: this.deviceName, files }));
   }
 
+  private handleUpload(req: http.IncomingMessage, res: http.ServerResponse) {
+    const clientId = this.getClientIdFromRequest(req);
+    const client = this.clients.get(clientId);
+    const clientName = client ? client.name : '未知设备';
+
+    try {
+      const busboy = Busboy({ headers: req.headers });
+      
+      let fileName = '';
+      let targetId = 'host';
+      let filePath = '';
+      let fileSize = 0;
+      let writeStream: fs.WriteStream | null = null;
+      let uploadedSize = 0;
+
+      // 处理表单字段
+      busboy.on('field', (fieldname: string, value: string) => {
+        if (fieldname === 'fileName') {
+          fileName = value;
+        } else if (fieldname === 'targetId') {
+          targetId = value;
+        }
+      });
+
+      // 处理文件流
+      busboy.on('file', (fieldname: string, file: NodeJS.ReadableStream, info: { filename: string; encoding: string; mimeType: string }) => {
+        if (!fileName) {
+          fileName = info.filename;
+        }
+        
+        filePath = this.getUniqueFilePath(fileName);
+        writeStream = fs.createWriteStream(filePath);
+        
+        // 监听文件流数据
+        file.on('data', (chunk: Buffer) => {
+          uploadedSize += chunk.length;
+          fileSize = uploadedSize;
+          
+          // 发送上传进度（每 100KB 发送一次）
+          if (uploadedSize % (100 * 1024) < chunk.length) {
+            const percent = fileSize > 0 ? Math.round((uploadedSize / fileSize) * 100) : 0;
+            this.emit('upload-progress', { 
+              name: fileName, 
+              percent, 
+              sentSize: uploadedSize, 
+              totalSize: fileSize 
+            });
+            
+            // 通知客户端上传进度
+            if (client && client.socket.connected) {
+              client.socket.emit('upload-progress', {
+                fileName,
+                percent,
+                sentSize: uploadedSize,
+                totalSize: fileSize
+              });
+            }
+          }
+        });
+
+        // 将文件流写入磁盘
+        file.pipe(writeStream);
+
+        file.on('end', () => {
+          console.log(`[Upload] File stream ended: ${fileName}, size: ${fileSize}`);
+        });
+      });
+
+      // 所有数据处理完成
+      busboy.on('finish', () => {
+        if (!fileName || !filePath) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid file data' }));
+          return;
+        }
+
+        // 等待写入流完成
+        if (writeStream) {
+          writeStream.end(() => {
+            // 如果目标是其他设备，共享文件
+            if (targetId !== 'host') {
+              const targetClient = this.clients.get(targetId);
+              if (targetClient && targetClient.socket.connected) {
+                const fileId = this.shareFile(filePath, targetId);
+                const downloadUrl = `${this.getURL()}/download/${targetId}/${fileId}`;
+                targetClient.socket.emit('file-received', {
+                  fileName,
+                  fileSize,
+                  filePath: downloadUrl,
+                  from: clientName
+                });
+                this.emit('file-relayed', { name: fileName, size: fileSize, from: clientName, to: targetClient.name, fileId });
+              } else {
+                console.log(`[Upload] Target client ${targetId} not found or not connected`);
+              }
+            } else {
+              // 发送到桌面端
+              this.emit('upload-complete', { 
+                name: fileName, 
+                size: fileSize, 
+                filePath, 
+                clientId, 
+                clientName, 
+                targetId 
+              });
+            }
+
+            // 通知上传成功
+            if (client && client.socket.connected) {
+              client.socket.emit('upload-complete', { 
+                fileName 
+              });
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, fileName }));
+          });
+        } else {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No file received' }));
+        }
+      });
+
+      busboy.on('error', (err: Error) => {
+        console.error('[Upload] Busboy error:', err);
+        
+        // 清理写入流
+        if (writeStream) {
+          writeStream.end();
+          writeStream = null;
+        }
+        
+        // 删除部分上传的文件
+        if (filePath && fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+        
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Upload failed' }));
+        
+        // 通知客户端上传失败
+        if (client && client.socket.connected) {
+          client.socket.emit('upload-error', { 
+            error: 'Upload failed' 
+          });
+        }
+      });
+
+      // 将请求流传递给 busboy
+      req.pipe(busboy);
+
+    } catch (error) {
+      console.error('[Upload] Error:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Upload failed' }));
+    }
+  }
+
   private getFilesForClient(clientId: string) {
     const files: { id: string; name: string; size: number }[] = [];
     for (const [id, info] of this.sharedFiles.entries()) {
-      // 只返回给所有人的文件或指定给该客户端的文件
       if (info.targetClientId === null || info.targetClientId === clientId) {
         if (fs.existsSync(info.filePath)) {
           files.push({ id, name: path.basename(info.filePath), size: fs.statSync(info.filePath).size });
@@ -193,36 +484,138 @@ export class WebFileServer extends EventEmitter {
   }
 
   private handleDownload(clientId: string, fileId: string, res: http.ServerResponse) {
+    console.log(`[Download] Request - clientId: ${clientId}, fileId: ${fileId}`);
+    
     const info = this.sharedFiles.get(fileId);
-    if (!info || !fs.existsSync(info.filePath)) {
-      res.writeHead(404); res.end('File not found'); return;
+    
+    if (!info) {
+      console.log(`[Download] File ID not found in sharedFiles map`);
+      console.log(`[Download] Available fileIds:`, Array.from(this.sharedFiles.keys()));
+      res.writeHead(404);
+      return res.end('File index expired or not found');
     }
-    // 检查权限
+    
+    console.log(`[Download] File info - path: ${info.filePath}, targetClientId: ${info.targetClientId}`);
+    
+    // 检查磁盘文件
+    if (!fs.existsSync(info.filePath)) {
+      console.log(`[Download] File does not exist on disk: ${info.filePath}`);
+      res.writeHead(404);
+      return res.end('File missing on disk');
+    }
+    
+    // 权限检查：如果指定了目标客户端，只允许该客户端下载
     if (info.targetClientId !== null && info.targetClientId !== clientId) {
-      res.writeHead(403); res.end('Access denied'); return;
+      console.log(`[Download] Access denied - targetClientId: ${info.targetClientId}, requestClientId: ${clientId}`);
+      res.writeHead(403);
+      return res.end('Access denied');
     }
 
     const stat = fs.statSync(info.filePath);
     const fileName = path.basename(info.filePath);
+    
+    console.log(`[Download] Serving file: ${fileName}, size: ${stat.size} bytes`);
+    
+    // 设置响应头 - 必须在写入数据前设置
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
-      'Content-Length': stat.size
+      'Content-Length': stat.size,
+      'Access-Control-Allow-Origin': '*',
+      // 必须暴露这些头，否则前端 fetch 拿不到
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Disposition'
     });
 
     const readStream = fs.createReadStream(info.filePath);
+    
+    let bytesSent = 0;
+    readStream.on('data', (chunk) => {
+      bytesSent += chunk.length;
+    });
+    
+    // 错误处理：防止流读取失败导致连接挂起
+    readStream.on('error', (err) => {
+      console.error('[Download] Stream error:', err);
+      if (!res.headersSent) {
+        res.writeHead(500);
+      }
+      res.end();
+    });
+    
+    // 核心：泵入数据
     readStream.pipe(res);
-    readStream.on('end', () => {
+    
+    // 传输完成后的处理
+    res.on('finish', () => {
+      console.log(`[Download] Finished sending: ${fileName}, bytes sent: ${bytesSent}`);
       this.emit('file-downloaded', { id: fileId, name: fileName, size: stat.size, clientId });
-      this.sharedFiles.delete(fileId);
-      this.notifyClient(clientId);
+      
+      // 延迟删除文件 ID，允许重复下载
+      setTimeout(() => {
+        if (this.sharedFiles.has(fileId)) {
+          this.sharedFiles.delete(fileId);
+          console.log(`[Download] Removed fileId from sharedFiles: ${fileId}`);
+          if (info.targetClientId) {
+            this.notifyClient(info.targetClientId);
+          }
+        }
+      }, 60000); // 60 秒后删除
     });
   }
 
-  // 分享文件给指定手机（targetClientId 为 null 则所有人可见）
   shareFile(filePath: string, targetClientId: string | null = null): string {
     const id = Math.random().toString(36).slice(2, 10);
     this.sharedFiles.set(id, { filePath, targetClientId });
+    
+    console.log(`[shareFile] Sharing file: ${filePath}, target: ${targetClientId}, fileId: ${id}`);
+    
+    // 如果指定了目标客户端，直接发送文件通知
+    if (targetClientId) {
+      const targetClient = this.clients.get(targetClientId);
+      console.log(`[shareFile] Target client found: ${!!targetClient}, Socket connected: ${targetClient?.socket.connected}`);
+      
+      if (targetClient && targetClient.socket.connected) {
+        const fileName = path.basename(filePath);
+        let fileSize = 0;
+        
+        try {
+          if (fs.existsSync(filePath)) {
+            const stats = fs.statSync(filePath);
+            fileSize = stats.size;
+            console.log(`[shareFile] File size: ${fileSize} bytes`);
+          } else {
+            console.error(`[shareFile] File not found: ${filePath}`);
+          }
+        } catch (error) {
+          console.error(`[shareFile] Error getting file stats:`, error);
+        }
+        
+        // 使用相对路径，避免混合内容问题
+        const downloadUrl = `/download/${targetClientId}/${id}`;
+        
+        const message = {
+          fileName,
+          fileSize,
+          filePath: downloadUrl,
+          from: this.deviceName
+        };
+        
+        console.log(`[shareFile] Sending message:`, message);
+        
+        try {
+          targetClient.socket.emit('file-received', message);
+          console.log(`[File] Sent file notification to client ${targetClientId}: ${fileName} (${fileSize} bytes)`);
+        } catch (error) {
+          console.error(`[shareFile] Error sending Socket.IO message:`, error);
+        }
+        
+        return id;
+      } else {
+        console.log(`[File] Target client ${targetClientId} not found or not connected, adding to shared list`);
+      }
+    }
+    
+    // 如果没有指定目标或目标不在线，通知所有客户端
     if (targetClientId) {
       this.notifyClient(targetClientId);
     } else {
@@ -241,9 +634,26 @@ export class WebFileServer extends EventEmitter {
     }
   }
 
-  // 分享文本给指定手机
   shareText(text: string, targetClientId: string | null = null): string {
     const id = Math.random().toString(36).slice(2, 10);
+    
+    // 如果指定了目标客户端，直接发送文本消息
+    if (targetClientId) {
+      const targetClient = this.clients.get(targetClientId);
+      if (targetClient && targetClient.socket.connected) {
+        targetClient.socket.emit('text-received', {
+          id,
+          text,
+          from: this.deviceName
+        });
+        console.log(`[Text] Sent text to client ${targetClientId}`);
+        return id;
+      } else {
+        console.log(`[Text] Target client ${targetClientId} not found or not connected, adding to shared list`);
+      }
+    }
+    
+    // 如果没有指定目标或目标不在线，添加到共享列表
     this.sharedTexts.set(id, { text, targetClientId, timestamp: Date.now() });
     if (targetClientId) {
       this.notifyClient(targetClientId);
@@ -275,39 +685,37 @@ export class WebFileServer extends EventEmitter {
 
   private notifyClient(clientId: string) {
     const client = this.clients.get(clientId);
-    if (client && client.ws.readyState === WebSocket.OPEN) {
+    if (client && client.socket.connected) {
       const files = this.getFilesForClient(clientId);
       const texts = this.getTextsForClient(clientId);
-      client.ws.send(JSON.stringify({ type: 'files-updated', files, texts }));
+      client.socket.emit('files-updated', { files, texts });
     }
   }
 
   private notifyAllClients() {
     for (const [clientId, client] of this.clients.entries()) {
-      if (client.ws.readyState === WebSocket.OPEN) {
+      if (client.socket.connected) {
         const files = this.getFilesForClient(clientId);
         const texts = this.getTextsForClient(clientId);
-        client.ws.send(JSON.stringify({ type: 'files-updated', files, texts }));
+        client.socket.emit('files-updated', { files, texts });
       }
     }
   }
 
-  private handleWebSocket(ws: WebSocket, req: http.IncomingMessage) {
-    const ip = (req.socket.remoteAddress || '').replace('::ffff:', '');
+  private handleSocketConnection(socket: Socket) {
+    const ip = (socket.handshake.address || '').replace('::ffff:', '');
     
-    // 检查是否已有同 IP 的客户端，如果有则复用或替换
     let clientId = '';
     let clientName = `手机 ${ip.split('.').pop()}`;
     let isReconnect = false;
-    let oldWs: WebSocket | null = null;
     
+    // 检查是否是重连
     for (const [id, existingClient] of this.clients.entries()) {
       if (existingClient.ip === ip) {
-        // 同 IP 设备重新连接，复用 ID 和名称
         clientId = id;
         clientName = existingClient.name;
         isReconnect = true;
-        oldWs = existingClient.ws;
+        existingClient.socket.disconnect();
         break;
       }
     }
@@ -316,130 +724,179 @@ export class WebFileServer extends EventEmitter {
       clientId = uuidv4();
     }
 
-    const client: MobileClient = { id: clientId, name: clientName, model: '', ws, ip, connectedAt: Date.now() };
+    const client: MobileClient = { 
+      id: clientId, 
+      name: clientName, 
+      model: '', 
+      socket, 
+      ip, 
+      connectedAt: Date.now() 
+    };
     this.clients.set(clientId, client);
 
-    // 关闭旧连接（在新连接已设置后再关闭，避免 close 事件删除新记录）
-    if (oldWs && oldWs.readyState === WebSocket.OPEN) {
-      oldWs.close();
-    }
-
-    // 发送客户端ID和当前文件列表
-    ws.send(JSON.stringify({ type: 'connected', clientId, deviceName: this.deviceName }));
+    // 发送连接成功消息
+    socket.emit('connected', { 
+      clientId, 
+      deviceName: this.deviceName, 
+      appVersion: app.getVersion() 
+    });
+    
+    // 发送待下载的文件和文本
     const files = this.getFilesForClient(clientId);
     const texts = this.getTextsForClient(clientId);
     if (files.length > 0 || texts.length > 0) {
-      ws.send(JSON.stringify({ type: 'files-updated', files, texts }));
+      socket.emit('files-updated', { files, texts });
     }
+    
     // 发送设备列表
-    ws.send(JSON.stringify({ type: 'devices-updated', devices: this.getDeviceListForMobile(clientId) }));
+    socket.emit('devices-updated', { devices: this.getDeviceListForMobile(clientId) });
 
-    // 通知前端有新手机连接（重连时更新）
     if (isReconnect) {
       this.emit('client-updated', { id: clientId, name: clientName, ip });
     } else {
       this.emit('client-connected', { id: clientId, name: clientName, ip });
-      // 新手机连接后，通知其他手机更新设备列表
       this.broadcastDeviceList();
     }
 
+    // 设置设备名称
+    socket.on('set-name', (data: { name: string; model?: string }) => {
+      clientName = data.name || clientName;
+      client.name = clientName;
+      if (data.model) client.model = data.model;
+      this.emit('client-updated', { id: clientId, name: clientName, model: client.model, ip });
+      this.broadcastDeviceList();
+    });
+
+    // 获取设备列表
+    socket.on('get-devices', () => {
+      socket.emit('devices-updated', { devices: this.getDeviceListForMobile(clientId) });
+    });
+
+    // 发送文本
+    socket.on('send-text', (data: { text: string; targetId?: string }) => {
+      const targetId = data.targetId || 'host';
+      if (targetId === 'host') {
+        this.emit('text-received', { text: data.text, clientId, clientName });
+        socket.emit('text-received');
+      } else {
+        const targetClient = this.clients.get(targetId);
+        if (targetClient && targetClient.socket.connected) {
+          targetClient.socket.emit('text-from-mobile', { 
+            text: data.text, 
+            from: clientName,
+            fromId: clientId
+          });
+          socket.emit('text-received');
+          this.emit('text-relayed', { text: data.text, from: clientName, to: targetClient.name });
+        } else {
+          socket.emit('error', { message: '目标设备不在线' });
+        }
+      }
+    });
+
+    // 复制文本
+    socket.on('copy-text', (data: { id: string }) => {
+      const textInfo = this.sharedTexts.get(data.id);
+      if (textInfo) {
+        this.emit('text-copied', { id: data.id, text: textInfo.text, clientId });
+        this.sharedTexts.delete(data.id);
+        this.notifyClient(clientId);
+      }
+    });
+
+    // 下载失败通知
+    socket.on('download-failed', (data: { fileName: string; filePath: string }) => {
+      this.emit('download-failed', { 
+        fileName: data.fileName, 
+        filePath: data.filePath,
+        clientId, 
+        clientName 
+      });
+    });
+
+    // 文件传输（使用 Socket.IO 的二进制支持）
     let currentFileName = '';
     let currentFileSize = 0;
     let currentFilePath = '';
     let receivedSize = 0;
     let writeStream: fs.WriteStream | null = null;
-    let targetDeviceId = 'host'; // 默认发送给当前电脑
+    let targetDeviceId = 'host';
 
-    ws.on('message', (data: Buffer, isBinary: boolean) => {
-      if (!isBinary) {
-        try {
-          const msg = JSON.parse(data.toString());
-          if (msg.type === 'set-name') {
-            clientName = msg.name || clientName;
-            client.name = clientName;
-            if (msg.model) client.model = msg.model;
-            this.emit('client-updated', { id: clientId, name: clientName, model: client.model, ip });
-            // 名称更新后通知其他手机
-            this.broadcastDeviceList();
-          } else if (msg.type === 'get-devices') {
-            // 手机请求设备列表
-            ws.send(JSON.stringify({ type: 'devices-updated', devices: this.getDeviceListForMobile(clientId) }));
-          } else if (msg.type === 'file-start') {
-            currentFileName = msg.name;
-            currentFileSize = msg.size;
-            targetDeviceId = msg.targetId || 'host';
-            receivedSize = 0;
-            currentFilePath = this.getUniqueFilePath(currentFileName);
-            writeStream = fs.createWriteStream(currentFilePath);
-            this.emit('upload-start', { name: currentFileName, size: currentFileSize, clientId, clientName, targetId: targetDeviceId });
-            ws.send(JSON.stringify({ type: 'ready' }));
-          } else if (msg.type === 'file-end') {
-            writeStream?.close();
-            writeStream = null;
-            
-            // 如果目标是其他手机，则中转文件
-            if (targetDeviceId !== 'host') {
-              const targetClient = this.clients.get(targetDeviceId);
-              if (targetClient) {
-                // 分享文件给目标手机
-                const fileId = this.shareFile(currentFilePath, targetDeviceId);
-                this.emit('file-relayed', { name: currentFileName, size: currentFileSize, from: clientName, to: targetClient.name, fileId });
-              }
-            }
-            
-            this.emit('upload-complete', { name: currentFileName, size: currentFileSize, filePath: currentFilePath, clientId, clientName, targetId: targetDeviceId });
-            ws.send(JSON.stringify({ type: 'complete', name: currentFileName }));
-          } else if (msg.type === 'send-text') {
-            const targetId = msg.targetId || 'host';
-            if (targetId === 'host') {
-              // 发送给当前电脑
-              this.emit('text-received', { text: msg.text, clientId, clientName });
-              ws.send(JSON.stringify({ type: 'text-received' }));
-            } else {
-              // 发送给其他手机（中转）
-              const targetClient = this.clients.get(targetId);
-              if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
-                // 直接推送给目标手机
-                targetClient.ws.send(JSON.stringify({ 
-                  type: 'text-from-mobile', 
-                  text: msg.text, 
-                  from: clientName,
-                  fromId: clientId
-                }));
-                ws.send(JSON.stringify({ type: 'text-received' }));
-                this.emit('text-relayed', { text: msg.text, from: clientName, to: targetClient.name });
-              } else {
-                ws.send(JSON.stringify({ type: 'error', message: '目标设备不在线' }));
-              }
-            }
-          } else if (msg.type === 'copy-text') {
-            // 手机复制了分享的文本
-            const textInfo = this.sharedTexts.get(msg.id);
-            if (textInfo) {
-              this.emit('text-copied', { id: msg.id, text: textInfo.text, clientId });
-              this.sharedTexts.delete(msg.id);
-              this.notifyClient(clientId);
-            }
-          }
-          return;
-        } catch { /* Binary data */ }
-      }
+    socket.on('file-start', (data: { name: string; size: number; targetId?: string }) => {
+      currentFileName = data.name;
+      currentFileSize = data.size;
+      targetDeviceId = data.targetId || 'host';
+      receivedSize = 0;
+      currentFilePath = this.getUniqueFilePath(currentFileName);
+      writeStream = fs.createWriteStream(currentFilePath);
+      this.emit('upload-start', { 
+        name: currentFileName, 
+        size: currentFileSize, 
+        clientId, 
+        clientName, 
+        targetId: targetDeviceId 
+      });
+      socket.emit('ready');
+    });
+
+    socket.on('file-chunk', (chunk: Buffer) => {
       if (writeStream) {
-        writeStream.write(data);
-        receivedSize += data.length;
+        writeStream.write(chunk);
+        receivedSize += chunk.length;
         const percent = Math.round((receivedSize / currentFileSize) * 100);
-        this.emit('upload-progress', { name: currentFileName, percent, receivedSize, totalSize: currentFileSize });
+        this.emit('upload-progress', { 
+          name: currentFileName, 
+          percent, 
+          receivedSize, 
+          totalSize: currentFileSize 
+        });
+        
+        // 发送进度给客户端
+        socket.emit('upload-progress', {
+          fileName: currentFileName,
+          percent,
+          sentSize: receivedSize,
+          totalSize: currentFileSize
+        });
       }
     });
 
-    ws.on('close', () => {
+    socket.on('file-end', () => {
       writeStream?.close();
-      // 只有当前 ws 仍是该客户端的活动连接时才删除和通知
+      writeStream = null;
+      
+      if (targetDeviceId !== 'host') {
+        const targetClient = this.clients.get(targetDeviceId);
+        if (targetClient) {
+          const fileId = this.shareFile(currentFilePath, targetDeviceId);
+          this.emit('file-relayed', { 
+            name: currentFileName, 
+            size: currentFileSize, 
+            from: clientName, 
+            to: targetClient.name, 
+            fileId 
+          });
+        }
+      }
+      
+      this.emit('upload-complete', { 
+        name: currentFileName, 
+        size: currentFileSize, 
+        filePath: currentFilePath, 
+        clientId, 
+        clientName, 
+        targetId: targetDeviceId 
+      });
+      socket.emit('upload-complete', { fileName: currentFileName });
+    });
+
+    // 断开连接
+    socket.on('disconnect', () => {
+      writeStream?.close();
       const currentClient = this.clients.get(clientId);
-      if (currentClient && currentClient.ws === ws) {
+      if (currentClient && currentClient.socket === socket) {
         this.clients.delete(clientId);
         this.emit('client-disconnected', { id: clientId, name: clientName, ip });
-        // 通知其他手机更新设备列表
         this.broadcastDeviceList();
       }
     });
@@ -458,879 +915,38 @@ export class WebFileServer extends EventEmitter {
   }
 
   private serveHTML(res: http.ServerResponse) {
-    const html = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content="#0a0a0c">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Cpath fill='%233b82f6' d='M841.8 456.4c2.4-12.7 3.6-25.7 3.6-38.7 0-117.5-95.6-213.2-213.1-213.2-65.3 0-125.4 29.9-165.2 78.6-26.6-13.6-56.3-20.9-86.9-20.9-92.2 0-169.4 65.6-187.3 152.7-76.7 33.1-129 109.8-129 195.8 0 117.5 95.6 213.1 213.2 213.1h490.6c105.4 0 191.2-85.8 191.2-191.2-0.1-79.1-48.5-147.2-117.1-176.2z'/%3E%3C/svg%3E">
-  <title>Airdrop</title>
-  <style>
-    :root {
-      --bg-gradient: linear-gradient(180deg, #0a0a0c 0%, #12121a 100%);
-      --bg-card: rgba(255,255,255,0.03);
-      --border-card: rgba(255,255,255,0.06);
-      --text-primary: #fff;
-      --text-secondary: #a0a0a8;
-      --text-muted: #6b6b74;
-      --accent: #3b82f6;
-      --accent-light: #60a5fa;
-    }
-    [data-theme="light"] {
-      --bg-gradient: linear-gradient(180deg, #f5f7fa 0%, #e8ecf1 100%);
-      --bg-card: #ffffff;
-      --border-card: #e0e4e8;
-      --text-primary: #1a1a1a;
-      --text-secondary: #4a4a4a;
-      --text-muted: #6b7280;
-      --accent: #2563eb;
-      --accent-light: #3b82f6;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif; background: var(--bg-gradient); min-height: 100vh; color: var(--text-primary); padding: 16px; padding-top: max(16px, env(safe-area-inset-top)); padding-bottom: max(16px, env(safe-area-inset-bottom)); }
-    .container { max-width: 420px; margin: 0 auto; }
+    // 直接使用生产模式的 HTML
+    this.serveProductionHTML(res);
+  }
+
+  private proxyToVite(req: http.IncomingMessage, res: http.ServerResponse) {
+    const viteDevUrl = `http://localhost:5174${req.url}`;
     
-    .header { text-align: center; padding: 20px 0 16px; margin-bottom: 20px; }
-    .logo { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 12px; }
-    .logo svg { width: 28px; height: 28px; color: var(--accent); filter: drop-shadow(0 0 8px rgba(59,130,246,0.4)); }
-    h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
-    .device-info { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
-    .device-info-left { display: flex; align-items: center; gap: 8px; }
-    .device-info-right { display: flex; align-items: center; }
-    .device-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); padding: 6px 12px; border-radius: 20px; font-size: 12px; color: var(--accent-light); }
-    .device-badge svg { width: 14px; height: 14px; }
-    .status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #22c55e; }
-    .status-badge::before { content: ''; width: 6px; height: 6px; background: #22c55e; border-radius: 50%; animation: pulse 2s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    
-    .my-device { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 16px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; }
-    .my-avatar { width: 40px; height: 40px; background: linear-gradient(135deg, #a855f7 0%, #6366f1 100%); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; }
-    .my-avatar svg { width: 20px; height: 20px; }
-    .my-info { flex: 1; }
-    .my-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; color: var(--text-primary); }
-    .my-model { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-    .edit-btn { background: none; border: none; color: var(--text-muted); padding: 8px; cursor: pointer; border-radius: 8px; }
-    .edit-btn:active { background: var(--bg-card); }
-    
-    .theme-switcher { display: flex; background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 10px; padding: 3px; gap: 2px; }
-    .theme-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 28px; background: transparent; border: none; border-radius: 7px; color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
-    .theme-btn svg { width: 16px; height: 16px; }
-    .theme-btn.active { background: rgba(255,255,255,0.1); color: var(--text-primary); }
-    [data-theme="light"] .theme-btn.active { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    
-    .section { margin-bottom: 20px; }
-    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .section-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-    .section-count { font-size: 11px; color: var(--text-muted); }
-    
-    .card { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 16px; overflow: hidden; }
-    .download-card { min-height: auto; }
-    .drop-zone { min-height: 140px; padding: 24px 20px; text-align: center; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .drop-zone.active { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.3); }
-    .drop-icon { width: 48px; height: 48px; margin: 0 auto 12px; background: rgba(59,130,246,0.1); border-radius: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .drop-icon svg { width: 22px; height: 22px; color: var(--accent); }
-    .drop-text { color: var(--text-muted); font-size: 13px; margin-bottom: 8px; }
-    .drop-hint { font-size: 11px; color: var(--text-muted); opacity: 0.7; }
-    
-    .file-input { display: none; }
-    .file-card { overflow: visible; }
-    .file-list-container { padding: 12px 16px; }
-    .file-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 13px; color: var(--text-secondary); }
-    .btn-clear-files { background: none; border: none; color: #ef4444; font-size: 13px; font-weight: 500; cursor: pointer; padding: 4px 8px; border-radius: 6px; }
-    .btn-clear-files:active { background: rgba(239,68,68,0.1); }
-    .file-list { background: rgba(0,0,0,0.05); border-radius: 12px; max-height: 200px; overflow-y: auto; }
-    [data-theme="light"] .file-list { background: rgba(0,0,0,0.03); }
-    .file-item { padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border-card); }
-    .file-item:last-child { border-bottom: none; }
-    .file-icon { width: 32px; height: 32px; min-width: 32px; background: rgba(59,130,246,0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .file-icon svg { width: 16px; height: 16px; color: var(--accent); flex-shrink: 0; }
-    .file-info { flex: 1; min-width: 0; overflow: hidden; }
-    .file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; color: var(--text-primary); }
-    .file-size { font-size: 11px; color: var(--text-muted); margin-top: 2px; display: block; }
-    .file-remove { background: none; border: none; color: var(--text-muted); width: 28px; height: 28px; min-width: 28px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .file-remove:active { background: rgba(239,68,68,0.1); color: #ef4444; }
-    .btn-add-more { background: none; border: none; color: var(--accent); font-size: 13px; font-weight: 500; cursor: pointer; padding: 10px; width: 100%; text-align: left; }
-    .btn-add-more:active { background: rgba(59,130,246,0.1); }
-    .progress-bar { height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 6px; overflow: hidden; }
-    .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa); transition: width 0.2s; }
-    
-    .btn { width: 100%; padding: 14px; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 8px; }
-    .btn-primary { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #fff; box-shadow: 0 4px 12px rgba(59,130,246,0.3); }
-    .btn-primary:active { transform: scale(0.98); }
-    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
-    .btn-download { background: linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(34,197,94,0.1) 100%); border: 1px solid rgba(34,197,94,0.25); color: #4ade80; width: auto; padding: 6px 14px; font-size: 13px; font-weight: 500; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; flex-shrink: 0; }
-    .btn-download:active { background: rgba(34,197,94,0.25); transform: scale(0.96); }
-    .btn-download svg { width: 14px; height: 14px; }
-    
-    .status { text-align: center; padding: 10px 16px; border-radius: 10px; font-size: 12px; margin-top: 12px; }
-    .status.success { color: #22c55e; background: rgba(34,197,94,0.1); }
-    .status.error { color: #ef4444; background: rgba(239,68,68,0.1); }
-    .status.info { color: #3b82f6; background: rgba(59,130,246,0.1); }
-    
-    .download-section { display: none; }
-    .download-section.show { display: block; }
-    .download-item { padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
-    .download-item + .download-item { border-top: 1px solid rgba(255,255,255,0.04); }
-    
-    .device-list { display: flex; flex-direction: row; gap: 10px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
-    .device-list::-webkit-scrollbar { display: none; }
-    .device-item { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 16px; width: 100px; min-width: 100px; max-width: 100px; background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 14px; cursor: pointer; transition: all 0.15s; flex-shrink: 0; position: relative; }
-    .device-item:active { transform: scale(0.96); }
-    .device-item.selected { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.3); }
-    .device-avatar { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .device-avatar svg { width: 20px; height: 20px; }
-    .device-avatar.pc { background: rgba(59,130,246,0.15); color: #60a5fa; }
-    .device-avatar.mobile { background: rgba(168,85,247,0.15); color: #c084fc; }
-    .device-item-info { text-align: center; }
-    .device-item-name { font-size: 12px; font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; color: var(--text-primary); }
-    .device-item-type { font-size: 9px; color: var(--text-muted); display: none; }
-    .device-check { position: absolute; top: 6px; right: 6px; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--border-card); display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(0,0,0,0.2); }
-    [data-theme="light"] .device-check { background: rgba(0,0,0,0.05); }
-    .device-check svg { width: 10px; height: 10px; display: none; }
-    .device-item.selected .device-check { background: #3b82f6; border-color: #3b82f6; }
-    .device-item.selected .device-check svg { display: block; color: #fff; }
-    
-    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
-    .modal.show { display: flex; }
-    .modal-content { background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 20px; padding: 24px; width: 100%; max-width: 320px; }
-    [data-theme="dark"] .modal-content { background: #18181c; }
-    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; text-align: center; color: var(--text-primary); }
-    .modal-input { width: 100%; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 12px; color: var(--text-primary); font-size: 15px; outline: none; }
-    [data-theme="dark"] .modal-input { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); }
-    .modal-input:focus { border-color: #3b82f6; }
-    .modal-btns { display: flex; gap: 10px; margin-top: 16px; }
-    .modal-btns .btn { flex: 1; padding: 12px; }
-    .btn-cancel { background: var(--bg-card); border: 1px solid var(--border-card); color: var(--text-primary); }
-    [data-theme="dark"] .btn-cancel { background: rgba(255,255,255,0.05); border: none; }
-    
-    .mode-tabs { display: flex; gap: 4px; background: var(--bg-card); border: 1px solid var(--border-card); border-radius: 10px; padding: 4px; margin-bottom: 12px; }
-    .mode-tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 12px; background: transparent; border: none; border-radius: 8px; color: var(--text-muted); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
-    .mode-tab svg { width: 16px; height: 16px; }
-    .mode-tab.active { background: var(--accent); color: #fff; }
-    .mode-tab:active { transform: scale(0.98); }
-    
-    .text-card { padding: 0; height: 160px; display: flex; flex-direction: column; }
-    .text-card textarea { flex: 1; width: 100%; padding: 14px 16px; background: transparent; border: none; color: var(--text-primary); font-size: 14px; line-height: 1.5; resize: none; outline: none; font-family: inherit; }
-    .text-card textarea::placeholder { color: var(--text-muted); }
-    .text-card textarea { -webkit-user-select: text; user-select: text; }
-    .text-card textarea:focus { background: rgba(59,130,246,0.03); }
-    .text-card textarea:focus::placeholder { color: var(--accent-light); }
-    .text-actions { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--border-card); }
-    .paste-hint { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12px; }
-    .paste-hint svg { width: 14px; height: 14px; }
-    .paste-hint.hidden { display: none; }
-    .text-count { font-size: 11px; color: var(--text-muted); }
-    
-    .text-list-card { min-height: auto; }
-    .text-item { position: relative; padding: 14px 16px; padding-right: 56px; cursor: pointer; transition: background 0.15s; }
-    .text-item:active { background: rgba(139,92,246,0.08); }
-    .text-item.copied { background: rgba(34,197,94,0.08); }
-    .text-item + .text-item { border-top: 1px solid var(--border-card); }
-    .text-from { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; display: flex; align-items: center; gap: 4px; }
-    .text-from svg { width: 12px; height: 12px; }
-    .text-preview { font-size: 14px; line-height: 1.6; color: var(--text-primary); word-break: break-all; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .text-action-icon { position: absolute; top: 50%; right: 14px; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: rgba(139,92,246,0.15); border-radius: 8px; color: #a78bfa; transition: all 0.15s; }
-    .text-action-icon.success { background: rgba(34,197,94,0.15); color: #22c55e; }
-    .text-action-icon svg { width: 16px; height: 16px; }
-    
-    .toast { position: fixed; top: max(20px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%) translateY(-100px); background: rgba(255,255,255,0.98); color: #333; padding: 12px 20px; border-radius: 10px; font-size: 14px; font-weight: 500; z-index: 1000; opacity: 0; transition: all 0.3s cubic-bezier(0.4,0,0.2,1); pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 8px; }
-    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-    .toast::before { content: ''; width: 18px; height: 18px; border-radius: 50%; background: #3b82f6; flex-shrink: 0; }
-    .toast.success::before { background: #10b981; }
-    .toast.error::before { background: #ef4444; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="logo">
-        <svg viewBox="0 0 1024 1024" fill="#3b82f6"><path d="M841.8 456.4c2.4-12.7 3.6-25.7 3.6-38.7 0-117.5-95.6-213.2-213.1-213.2-65.3 0-125.4 29.9-165.2 78.6-26.6-13.6-56.3-20.9-86.9-20.9-92.2 0-169.4 65.6-187.3 152.7-76.7 33.1-129 109.8-129 195.8 0 117.5 95.6 213.1 213.2 213.1h490.6c105.4 0 191.2-85.8 191.2-191.2-0.1-79.1-48.5-147.2-117.1-176.2z m-74.3 311.5H276.9c-86.9 0-157.3-70.4-157.3-157.3 0-75.9 53.8-139.2 125.3-154 0-1.1-0.2-2.2-0.2-3.3 0-74.7 60.6-135.3 135.4-135.3 41.6 0 78.7 18.8 103.5 48.3 21.3-61.6 79.7-105.9 148.5-105.9 86.9 0 157.3 70.4 157.3 157.3 0 29.1-8 56.2-21.8 79.6 74.7 0.1 135.2 60.6 135.2 135.3 0.1 74.7-60.5 135.3-135.3 135.3z"/><path d="M767.7 531.3c-0.1 0-0.1 0 0 0-10.3 0-18.6 8.3-18.6 18.6s8.3 18.6 18.6 18.7c35.3 0 64 28.8 64 64.1s-28.7 64.1-64.1 64.1H276.9c-47.4 0-86-38.6-86-86 0-40.6 28.8-76 68.4-84.2 10.1-2.1 16.6-11.9 14.5-22-2.1-10.1-11.9-16.5-22-14.5-56.9 11.8-98.1 62.5-98.1 120.7 0 68 55.3 123.3 123.3 123.3h490.6c55.9 0 101.3-45.5 101.3-101.3 0-56-45.4-101.5-101.2-101.5zM527.3 401.1c9.7 3.3 20.3-1.8 23.7-11.5 12-34.7 44.6-57.9 81.2-57.9 47.4 0 86 38.6 86 86 0 15.1-4.1 30.2-11.9 43.4-5.2 8.9-2.3 20.3 6.6 25.5 3 1.7 6.2 2.6 9.4 2.6 6.4 0 12.6-3.3 16.1-9.2 11.2-19 17.1-40.6 17.1-62.3 0-68-55.3-123.3-123.3-123.3-52.4 0-99.2 33.4-116.4 83-3.3 9.7 1.8 20.3 11.5 23.7zM297.2 470.9h0.3c10.2 0 18.5-8.2 18.6-18.4 0.5-34.8 29.2-63.2 64.1-63.2 18.9 0 36.8 8.3 49 22.9 6.6 7.9 18.4 8.9 26.2 2.3 7.9-6.6 8.9-18.4 2.3-26.3-19.3-23-47.6-36.2-77.5-36.2-55.1 0-100.6 44.8-101.3 100-0.2 10.3 8 18.7 18.3 18.9z"/></svg>
-        <h1>Airdrop</h1>
-      </div>
-      <div class="device-info">
-        <div class="device-info-left">
-          <span class="device-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span id="deviceName">-</span></span>
-          <span class="status-badge">已连接</span>
-        </div>
-        <div class="device-info-right">
-          <div class="theme-switcher">
-            <button class="theme-btn" data-theme="system" onclick="setTheme('system')" title="跟随系统">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-            </button>
-            <button class="theme-btn" data-theme="light" onclick="setTheme('light')" title="浅色">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-            </button>
-            <button class="theme-btn" data-theme="dark" onclick="setTheme('dark')" title="深色">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <div class="my-device">
-      <div class="my-avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 18h.01"/></svg></div>
-      <div class="my-info">
-        <div class="my-name"><span id="myName">我的手机</span></div>
-        <div class="my-model" id="myModel">检测中...</div>
-      </div>
-      <button class="edit-btn" onclick="showEditModal()">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-      </button>
-    </div>
-    
-    <!-- 设备选择器 -->
-    <div class="section">
-      <div class="section-header">
-        <span class="section-title">发送到</span>
-        <span class="section-count" id="deviceCount">1 台设备</span>
-      </div>
-      <div class="device-list" id="deviceList"></div>
-    </div>
-    
-    <div class="section">
-      <div class="mode-tabs" id="modeTabs">
-        <button class="mode-tab active" data-mode="file" onclick="switchMode('file')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg>
-          文件
-        </button>
-        <button class="mode-tab" data-mode="text" onclick="switchMode('text')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          文本
-        </button>
-      </div>
-      
-      <div id="fileMode">
-        <div class="card file-card">
-          <div class="drop-zone" id="dropZone">
-            <div class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg></div>
-            <div class="drop-text">点击或拖放文件</div>
-            <div class="drop-hint">支持多选和粘贴</div>
-          </div>
-          <div class="file-list-container" id="fileListContainer" style="display:none;">
-            <div class="file-list-header">
-              <span>已选择 <span id="fileCount">0</span> 个文件</span>
-              <button class="btn-clear-files" onclick="clearFiles()">清空</button>
-            </div>
-            <div class="file-list" id="fileList"></div>
-            <button class="btn-add-more" onclick="document.getElementById('fileInput').click()">+ 添加更多</button>
-          </div>
-          <input type="file" class="file-input" id="fileInput" multiple>
-        </div>
-        <button class="btn btn-primary" id="uploadBtn" disabled style="margin-top:12px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-          发送文件
-        </button>
-      </div>
-      
-      <div id="textMode" style="display:none;">
-        <div class="card text-card">
-          <textarea id="textInput" placeholder="长按此处粘贴文本，或直接输入..."></textarea>
-          <div class="text-actions">
-            <div class="paste-hint" id="pasteHint">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-              <span>长按输入框粘贴</span>
-            </div>
-            <span class="text-count"><span id="charCount">0</span> 字</span>
-          </div>
-        </div>
-        <button class="btn btn-primary" id="sendTextBtn" disabled style="margin-top:12px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          发送文本
-        </button>
-      </div>
-      
-      <div id="status" class="status" style="display:none;"></div>
-    </div>
-    
-    <div class="section download-section" id="downloadSection">
-      <div class="section-header">
-        <span class="section-title">传输记录</span>
-        <span class="section-count" id="downloadCount"></span>
-      </div>
-      <div class="card download-card" id="downloadList"></div>
-    </div>
-    
-    <div class="section text-section" id="textSection" style="display:none;">
-      <div class="section-header">
-        <span class="section-title">传输记录</span>
-      </div>
-      <div class="card text-list-card" id="textList"></div>
-    </div>
-  </div>
-  
-  <div class="modal" id="editModal">
-    <div class="modal-content">
-      <div class="modal-title">设置设备名称</div>
-      <input type="text" class="modal-input" id="nameInput" placeholder="输入昵称" maxlength="20">
-      <div class="modal-btns">
-        <button class="btn btn-cancel" onclick="hideEditModal()">取消</button>
-        <button class="btn btn-primary" onclick="saveName()">保存</button>
-      </div>
-    </div>
-  </div>
-  
-  <div class="toast" id="toast"></div>
-  
-  <script>
-    // 主题初始化
-    const savedTheme = localStorage.getItem('airdrop_theme') || 'system';
-    applyTheme(savedTheme);
-    updateThemeButtons(savedTheme);
-    
-    // 监听系统主题变化
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      const current = localStorage.getItem('airdrop_theme') || 'system';
-      if (current === 'system') applyTheme('system');
+    http.get(viteDevUrl, (viteRes) => {
+      res.writeHead(viteRes.statusCode || 200, viteRes.headers);
+      viteRes.pipe(res);
+    }).on('error', (err) => {
+      console.error('Vite proxy error:', err.message);
+      res.writeHead(502);
+      res.end('Vite dev server not available');
     });
+  }
+
+  private serveProductionHTML(res: http.ServerResponse) {
+    const reactTemplatePath = path.join(__dirname, '../templates/mobile-web.html');
     
-    function setTheme(theme) {
-      localStorage.setItem('airdrop_theme', theme);
-      applyTheme(theme);
-      updateThemeButtons(theme);
+    if (!fs.existsSync(reactTemplatePath)) {
+      res.writeHead(404);
+      res.end('Template not found');
+      return;
     }
-    
-    function applyTheme(theme) {
-      if (theme === 'system') {
-        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-      } else {
-        document.documentElement.setAttribute('data-theme', theme);
-      }
-    }
-    
-    function updateThemeButtons(theme) {
-      document.querySelectorAll('.theme-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.theme === theme);
-      });
-    }
-    
-    let clientId = null;
-    let ws = null;
-    let uploadWs = null;
-    let selectedFiles = [];
-    let myName = localStorage.getItem('airdrop_name') || '';
-    let devices = []; // 可用设备列表
-    let selectedDeviceId = 'host'; // 当前选中的目标设备
-    
-    const dropZone = document.getElementById('dropZone');
-    const fileInput = document.getElementById('fileInput');
-    const fileList = document.getElementById('fileList');
-    const uploadBtn = document.getElementById('uploadBtn');
-    const statusEl = document.getElementById('status');
-    const deviceNameEl = document.getElementById('deviceName');
-    const downloadSection = document.getElementById('downloadSection');
-    const downloadList = document.getElementById('downloadList');
-    const myNameEl = document.getElementById('myName');
-    const myModelEl = document.getElementById('myModel');
-    const downloadCountEl = document.getElementById('downloadCount');
-    const editModal = document.getElementById('editModal');
-    const nameInput = document.getElementById('nameInput');
-    const textSection = document.getElementById('textSection');
-    const textList = document.getElementById('textList');
-    const deviceListEl = document.getElementById('deviceList');
-    const deviceCountEl = document.getElementById('deviceCount');
-    const textInput = document.getElementById('textInput');
-    const sendTextBtn = document.getElementById('sendTextBtn');
-    
-    const charCountEl = document.getElementById('charCount');
-    const fileModeEl = document.getElementById('fileMode');
-    const textModeEl = document.getElementById('textMode');
-    
-    let currentMode = 'file';
-    let receivedTexts = []; // 从其他手机收到的文本
-    const deleteAfterCopy = true; // 复制后是否删除记录
-    
-    // Toast 提示
-    const toastEl = document.getElementById('toast');
-    let toastTimer = null;
-    
-    function showToast(msg, type = '') {
-      if (toastTimer) clearTimeout(toastTimer);
-      toastEl.textContent = msg;
-      toastEl.className = 'toast show' + (type ? ' ' + type : '');
-      toastTimer = setTimeout(() => { toastEl.className = 'toast'; }, 2500);
-    }
-    
-    // 复制文本到剪贴板（用于接收其他手机发来的文本）
-    function copyTextToClipboard(text) {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      try { document.execCommand('copy'); } catch {}
-      document.body.removeChild(textarea);
-    }
-    
-    function switchMode(mode) {
-      currentMode = mode;
-      document.querySelectorAll('.mode-tab').forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.mode === mode);
-      });
-      fileModeEl.style.display = mode === 'file' ? 'block' : 'none';
-      textModeEl.style.display = mode === 'text' ? 'block' : 'none';
-    }
-    
-    const pasteHint = document.getElementById('pasteHint');
-    
-    // 输入框获得焦点时隐藏提示
-    textInput.onfocus = () => {
-      pasteHint.classList.add('hidden');
-    };
-    
-    // 输入框失去焦点且为空时显示提示
-    textInput.onblur = () => {
-      if (!textInput.value.trim()) {
-        pasteHint.classList.remove('hidden');
-      }
-    };
-    
-    textInput.oninput = () => { 
-      charCountEl.textContent = textInput.value.length;
-      sendTextBtn.disabled = !textInput.value.trim();
-      // 有内容时隐藏提示
-      if (textInput.value.trim()) {
-        pasteHint.classList.add('hidden');
-      }
-    };
-    
-    // 监听粘贴事件，显示成功提示
-    textInput.onpaste = () => {
-      setTimeout(() => {
-        if (textInput.value.trim()) {
-          showToast('已粘贴', 'success');
-          charCountEl.textContent = textInput.value.length;
-          sendTextBtn.disabled = false;
-          pasteHint.classList.add('hidden');
-        }
-      }, 10);
-    };
-    sendTextBtn.onclick = () => {
-      const text = textInput.value.trim();
-      if (text && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'send-text', text, targetId: selectedDeviceId }));
-        textInput.value = '';
-        charCountEl.textContent = '0';
-        sendTextBtn.disabled = true;
-      }
-    };
-    
-    // 更新设备列表 UI
-    function updateDeviceList() {
-      deviceCountEl.textContent = devices.length + ' 台设备';
-      deviceListEl.innerHTML = devices.map(d => {
-        const isSelected = d.id === selectedDeviceId;
-        const avatarClass = d.type === 'pc' ? 'pc' : 'mobile';
-        // 简化名称显示
-        let shortName = d.name;
-        if (shortName.length > 10) {
-          shortName = shortName.slice(0, 10) + '...';
-        }
-        const icon = d.type === 'pc' 
-          ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
-          : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>';
-        return '<div class="device-item' + (isSelected ? ' selected' : '') + '" data-id="' + d.id + '" onclick="selectDevice(\\'' + d.id + '\\')">' +
-          '<div class="device-check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></div>' +
-          '<div class="device-avatar ' + avatarClass + '">' + icon + '</div>' +
-          '<div class="device-item-info"><span class="device-item-name">' + shortName + '</span></div>' +
-        '</div>';
-      }).join('');
-      updateHeaderDevice();
-    }
-    
-    // 选择目标设备
-    function selectDevice(deviceId) {
-      selectedDeviceId = deviceId;
-      document.querySelectorAll('.device-item').forEach(el => {
-        el.classList.toggle('selected', el.dataset.id === deviceId);
-      });
-      updateHeaderDevice();
-    }
-    
-    // 更新顶部显示的连接设备
-    function updateHeaderDevice() {
-      const device = devices.find(d => d.id === selectedDeviceId);
-      if (device) {
-        deviceNameEl.textContent = device.name;
-        // 更新图标
-        const badge = document.querySelector('.device-badge');
-        if (badge) {
-          const iconSvg = device.type === 'pc' 
-            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
-            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>';
-          badge.innerHTML = iconSvg + '<span id="deviceName">' + device.name + '</span>';
-        }
-      }
-    }
-    
-    // 检测设备型号
-    function getDeviceModel() {
-      const ua = navigator.userAgent;
-      // iPhone: 无法从UA获取具体型号，只能获取iOS版本
-      if (/iPhone/.test(ua)) {
-        const match = ua.match(/iPhone\\s*OS\\s*([\\d_]+)/);
-        const ver = match ? match[1].replace(/_/g, '.').split('.').slice(0,2).join('.') : '';
-        return 'iPhone' + (ver ? ' · iOS ' + ver : '');
-      }
-      if (/iPad/.test(ua)) {
-        const match = ua.match(/CPU\\s*OS\\s*([\\d_]+)/);
-        const ver = match ? match[1].replace(/_/g, '.').split('.').slice(0,2).join('.') : '';
-        return 'iPad' + (ver ? ' · iPadOS ' + ver : '');
-      }
-      // Android: 可以获取设备型号
-      if (/Android/.test(ua)) {
-        const model = ua.match(/;\\s*([^;)]+)\\s*Build/);
-        const ver = ua.match(/Android\\s*([\\d.]+)/);
-        if (model) {
-          const modelName = model[1].trim();
-          return modelName + (ver ? ' · Android ' + ver[1] : '');
-        }
-        return 'Android' + (ver ? ' ' + ver[1] : '');
-      }
-      if (/HarmonyOS/.test(ua)) {
-        const model = ua.match(/;\\s*([^;)]+)\\s*Build/);
-        if (model) return model[1].trim() + ' · HarmonyOS';
-        return 'HarmonyOS';
-      }
-      return navigator.platform || '未知设备';
-    }
-    
-    function getDefaultName() {
-      const ua = navigator.userAgent;
-      if (/iPhone/.test(ua)) return 'iPhone';
-      if (/iPad/.test(ua)) return 'iPad';
-      if (/Android/.test(ua)) {
-        const model = ua.match(/;\\s*([^;)]+)\\s*Build/);
-        if (model) {
-          // 提取品牌名作为默认名称
-          const parts = model[1].trim().split(' ');
-          return parts[0] || 'Android';
-        }
-        return 'Android';
-      }
-      if (/HarmonyOS/.test(ua)) return '华为';
-      return '我的手机';
-    }
-    
-    // 初始化设备信息
-    const deviceModel = getDeviceModel();
-    myModelEl.textContent = deviceModel;
-    if (!myName) {
-      myName = getDefaultName();
-    }
-    myNameEl.textContent = myName;
-    
-    function showEditModal() {
-      nameInput.value = myName;
-      editModal.classList.add('show');
-      setTimeout(() => nameInput.focus(), 100);
-    }
-    
-    function hideEditModal() {
-      editModal.classList.remove('show');
-    }
-    
-    function saveName() {
-      const name = nameInput.value.trim();
-      if (name) {
-        myName = name;
-        myNameEl.textContent = myName;
-        localStorage.setItem('airdrop_name', myName);
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'set-name', name: myName, model: deviceModel }));
-        }
-      }
-      hideEditModal();
-    }
-    
-    nameInput.onkeydown = (e) => { if (e.key === 'Enter') saveName(); };
-    editModal.onclick = (e) => { if (e.target === editModal) hideEditModal(); };
-    
-    function connect() {
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(protocol + '//' + location.host);
-      
-      ws.onopen = () => {
-        // 连接后发送设备名称和型号
-        ws.send(JSON.stringify({ type: 'set-name', name: myName, model: deviceModel }));
-      };
-      
-      ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'connected') {
-          clientId = msg.clientId;
-          deviceNameEl.textContent = msg.deviceName;
-          // 初始化设备列表（至少有当前电脑）
-          if (devices.length === 0) {
-            devices = [{ id: 'host', name: msg.deviceName, type: 'pc' }];
-            updateDeviceList();
-          }
-        } else if (msg.type === 'devices-updated') {
-          // 更新设备列表
-          devices = msg.devices || [];
-          // 如果当前选中的设备不在列表中，重置为 host
-          if (!devices.find(d => d.id === selectedDeviceId)) {
-            selectedDeviceId = 'host';
-          }
-          updateDeviceList();
-        } else if (msg.type === 'files-updated') {
-          updateDownloadList(msg.files, msg.texts);
-        } else if (msg.type === 'text-from-mobile') {
-          // 收到其他手机发来的文本
-          showToast('收到来自 ' + msg.from + ' 的文本', 'success');
-          if (msg.text) {
-            // 添加到本地接收列表
-            const textId = 'local_' + Date.now();
-            receivedTexts.unshift({ id: textId, text: msg.text, from: msg.from });
-            // 保留最近20条
-            if (receivedTexts.length > 20) receivedTexts = receivedTexts.slice(0, 20);
-            // 更新显示
-            updateTextList();
-            // 自动复制
-            copyTextToClipboard(msg.text);
-          }
-        } else if (msg.type === 'text-received') {
-          textInput.value = '';
-          charCountEl.textContent = '0';
-          sendTextBtn.disabled = true;
-          const targetDevice = devices.find(d => d.id === selectedDeviceId);
-          showToast('文本已发送到 ' + (targetDevice?.name || '设备'), 'success');
-        }
-      };
-      
-      ws.onclose = () => setTimeout(connect, 2000);
-    }
-    connect();
-    
-    function copyText(id, text, itemEl, isServer = true) {
-      // 同步执行复制，确保在用户手势上下文中
-      let success = false;
-      
-      // 方法1: 使用 textarea + execCommand (兼容性最好)
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      
-      try {
-        success = document.execCommand('copy');
-      } catch (e) {
-        success = false;
-      }
-      document.body.removeChild(textarea);
-      
-      // 方法2: 如果方法1失败，尝试 Clipboard API
-      if (!success && navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => {
-          showCopySuccess(id, itemEl, isServer);
-        }).catch(() => {
-          showToast('复制失败，请长按文本手动复制', 'error');
-        });
-        return;
-      }
-      
-      if (success) {
-        showCopySuccess(id, itemEl, isServer);
-      } else {
-        showToast('复制失败，请长按文本手动复制', 'error');
-      }
-    }
-    
-    function showCopySuccess(id, itemEl, isServer = true) {
-      if (itemEl) {
-        itemEl.classList.add('copied');
-        const icon = itemEl.querySelector('.text-action-icon');
-        if (icon) {
-          icon.classList.add('success');
-          icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
-        }
-        setTimeout(() => {
-          itemEl.classList.remove('copied');
-          if (icon) {
-            icon.classList.remove('success');
-            icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
-          }
-        }, 1500);
-      }
-      
-      if (deleteAfterCopy) {
-        if (isServer) {
-          // 服务端文本：通知服务器删除
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'copy-text', id }));
-          }
-        } else {
-          // 本地文本：从本地列表删除
-          receivedTexts = receivedTexts.filter(t => t.id !== id);
-          updateTextList();
-        }
-      }
-      showToast('已复制到剪贴板', 'success');
-    }
-    
-    function updateDownloadList(files, texts) {
-      if (files && files.length > 0) {
-        downloadSection.classList.add('show');
-        downloadCountEl.textContent = files.length + ' 个文件';
-        downloadList.innerHTML = files.map(f => 
-          '<div class="download-item"><div class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg></div><div class="file-info"><div class="file-name">' + f.name + '</div><div class="file-size">' + formatSize(f.size) + '</div></div><a href="/download/' + clientId + '/' + f.id + '" class="btn btn-download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>下载</a></div>'
-        ).join('');
-      } else {
-        downloadSection.classList.remove('show');
-      }
-      
-      // 更新文本列表（来自电脑的分享文本）
-      window._serverTexts = texts || [];
-      updateTextList();
-    }
-    
-    function updateTextList() {
-      const serverTexts = window._serverTexts || [];
-      const allTexts = [...serverTexts.map(t => ({ ...t, from: deviceNameEl.textContent || '电脑', isServer: true })), ...receivedTexts.map(t => ({ ...t, isServer: false }))];
-      
-      if (allTexts.length > 0) {
-        textSection.style.display = 'block';
-        // 存储文本数据
-        window._sharedTexts = {};
-        allTexts.forEach(t => { window._sharedTexts[t.id] = t.text; });
-        textList.innerHTML = allTexts.map(t => {
-          const icon = t.isServer 
-            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
-            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>';
-          return '<div class="text-item" data-id="' + t.id + '" data-server="' + t.isServer + '"><div class="text-from">' + icon + t.from + '</div><div class="text-preview">' + t.text + '</div><span class="text-action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></span></div>';
-        }).join('');
-        // 绑定点击事件 - 点击整行复制
-        textList.querySelectorAll('.text-item').forEach(item => {
-          item.onclick = function() {
-            const id = this.dataset.id;
-            const text = window._sharedTexts[id];
-            const isServer = this.dataset.server === 'true';
-            if (text) copyText(id, text, this, isServer);
-          };
-        });
-      } else {
-        textSection.style.display = 'none';
-      }
-    }
-    
-    function formatSize(b) { return b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : b < 1073741824 ? (b/1048576).toFixed(1) + ' MB' : (b/1073741824).toFixed(2) + ' GB'; }
-    
-    dropZone.onclick = () => fileInput.click();
-    dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('active'); };
-    dropZone.ondragleave = () => dropZone.classList.remove('active');
-    dropZone.ondrop = (e) => { e.preventDefault(); dropZone.classList.remove('active'); addFiles(e.dataTransfer.files); };
-    fileInput.onchange = () => addFiles(fileInput.files);
-    
-    // 全局粘贴支持
-    document.addEventListener('paste', (e) => {
-      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const files = [];
-      for (const item of items) {
-        if (item.kind === 'file') {
-          const file = item.getAsFile();
-          if (file) files.push(file);
-        }
-      }
-      if (files.length > 0) {
-        e.preventDefault();
-        addFiles(files);
-        switchMode('file');
-      }
-    });
-    
-    function addFiles(files) {
-      for (const f of files) if (!selectedFiles.find(sf => sf.name === f.name && sf.size === f.size)) selectedFiles.push(f);
-      renderFiles();
-    }
-    
-    function removeFile(i) { selectedFiles.splice(i, 1); renderFiles(); }
-    function clearFiles() { selectedFiles = []; renderFiles(); }
-    
-    const fileListContainer = document.getElementById('fileListContainer');
-    const fileCountEl = document.getElementById('fileCount');
-    
-    function renderFiles() {
-      if (selectedFiles.length > 0) {
-        dropZone.style.display = 'none';
-        fileListContainer.style.display = 'block';
-        fileCountEl.textContent = selectedFiles.length;
-        fileList.innerHTML = selectedFiles.map((f, i) => '<div class="file-item" id="file-' + i + '"><div class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><path d="M13 2v7h7"/></svg></div><div class="file-info"><div class="file-name">' + f.name + '</div><div class="file-size">' + formatSize(f.size) + '</div><div class="progress-bar" style="display:none;"><div class="progress-fill" style="width:0%"></div></div></div><button class="file-remove" onclick="removeFile(' + i + ')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>').join('');
-      } else {
-        dropZone.style.display = 'flex';
-        fileListContainer.style.display = 'none';
-        fileList.innerHTML = '';
-      }
-      uploadBtn.disabled = selectedFiles.length === 0;
-    }
-    
-    uploadBtn.onclick = async () => {
-      if (!selectedFiles.length) return;
-      uploadBtn.disabled = true;
-      statusEl.style.display = 'block';
-      statusEl.className = 'status info';
-      statusEl.textContent = '连接中...';
-      
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      uploadWs = new WebSocket(protocol + '//' + location.host);
-      uploadWs.onopen = () => uploadFiles();
-      uploadWs.onerror = () => { statusEl.className = 'status error'; statusEl.textContent = '连接失败'; uploadBtn.disabled = false; };
-    };
-    
-    async function uploadFiles() {
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const file = selectedFiles[i];
-        const el = document.getElementById('file-' + i);
-        const bar = el.querySelector('.progress-bar');
-        const fill = el.querySelector('.progress-fill');
-        const rm = el.querySelector('.file-remove');
-        bar.style.display = 'block'; rm.style.display = 'none';
-        statusEl.textContent = '上传: ' + file.name;
-        await uploadFile(file, (p) => { fill.style.width = p + '%'; });
-      }
-      statusEl.className = 'status success';
-      statusEl.textContent = '✓ 上传完成';
-      selectedFiles = [];
-      setTimeout(() => { renderFiles(); statusEl.style.display = 'none'; uploadBtn.disabled = false; }, 2000);
-    }
-    
-    function uploadFile(file, onProgress) {
-      return new Promise((resolve) => {
-        const CHUNK = 64 * 1024;
-        let offset = 0;
-        // 发送文件开始消息，包含目标设备 ID
-        uploadWs.send(JSON.stringify({ type: 'file-start', name: file.name, size: file.size, targetId: selectedDeviceId }));
-        const onMsg = (e) => {
-          const msg = JSON.parse(e.data);
-          if (msg.type === 'ready') sendChunk();
-          else if (msg.type === 'complete') { uploadWs.removeEventListener('message', onMsg); resolve(); }
-        };
-        uploadWs.addEventListener('message', onMsg);
-        function sendChunk() {
-          if (offset >= file.size) { uploadWs.send(JSON.stringify({ type: 'file-end' })); return; }
-          const chunk = file.slice(offset, offset + CHUNK);
-          const reader = new FileReader();
-          reader.onload = () => { uploadWs.send(reader.result); offset += chunk.size; onProgress(Math.round((offset / file.size) * 100)); sendChunk(); };
-          reader.readAsArrayBuffer(chunk);
-        }
-      });
-    }
-  </script>
-</body>
-</html>`;
+
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(html);
+    fs.createReadStream(reactTemplatePath).pipe(res);
   }
 
   stop() {
-    this.wss?.close();
+    this.io?.close();
     this.httpServer?.close();
     this.sharedFiles.clear();
     this.clients.clear();
