@@ -2,6 +2,7 @@ import { FileDropZone } from './FileDropZone';
 import { TextInput } from './TextInput';
 import { DeviceList } from './DeviceList';
 import { HistoryList } from './HistoryList';
+import { HistoryItem } from './HistoryItem';
 
 interface Device {
   id: string;
@@ -52,7 +53,7 @@ interface TransferPageProps {
   isSending: boolean;
   sendProgress: TransferProgress | null;
   downloadProgress: TransferProgress | null;
-  onSend: () => void;
+  onSend: (deviceId?: string) => void;
   history: HistoryItem[];
   showAllHistory: boolean;
   onToggleShowAll: () => void;
@@ -67,6 +68,7 @@ interface TransferPageProps {
   downloadProgressMap: Map<string, { percent: number; receivedSize: number; totalSize: number }>;
   onCopyText: (text: string, id: string) => void;
   onDownloadFile: (filePath: string, fileName: string, itemId: string) => void;
+  onShowTextModal?: () => void;
 }
 
 export function TransferPage({
@@ -98,7 +100,8 @@ export function TransferPage({
   downloadFailedIds,
   downloadProgressMap,
   onCopyText,
-  onDownloadFile
+  onDownloadFile,
+  onShowTextModal
 }: TransferPageProps) {
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
@@ -107,13 +110,129 @@ export function TransferPage({
     return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
   };
 
+  // 筛选当天的记录
+  const getTodayHistory = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTimestamp = today.getTime();
+
+    return history.filter(item => {
+      const itemDate = new Date(item.timestamp);
+      itemDate.setHours(0, 0, 0, 0);
+      return itemDate.getTime() === todayTimestamp;
+    });
+  };
+
+  const todayHistory = getTodayHistory();
+
   return (
     <div className="flex flex-col w-full h-full min-[1024px]:flex-row">
       {/* 主内容区 */}
-      <div className="flex-1 min-w-0 p-4 md:p-6 overflow-y-auto">
-        <div className="w-full max-w-full mx-auto space-y-4">
-          {/* 模式切换 */}
-          <div className="flex gap-1 bg-secondary border border-custom rounded-xl p-1">
+      <div className="flex-1 min-w-0 px-6 py-4 md:p-6 md:pb-6 overflow-y-auto">
+        <div className="w-full max-w-full mx-auto space-y-6">
+          {/* 发送快捷操作 - 仅移动端显示 */}
+          <div className="md:hidden">
+            <h2 className="text-sm font-medium mb-3">发送</h2>
+            <div className="grid grid-cols-4 gap-3">
+              <button
+                onClick={onSelectFiles}
+                className="flex flex-col items-center gap-2 transition-transform active:scale-95"
+              >
+                <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center">
+                  <svg className="w-7 h-7 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+                    <path d="M13 2v7h7" />
+                  </svg>
+                </div>
+                <span className="text-xs text-foreground">文件</span>
+              </button>
+
+              <button
+                onClick={onSelectFiles}
+                className="flex flex-col items-center gap-2 transition-transform active:scale-95"
+              >
+                <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center">
+                  <svg className="w-7 h-7 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <path d="M21 15l-5-5L5 21" />
+                  </svg>
+                </div>
+                <span className="text-xs text-foreground">照片</span>
+              </button>
+
+              <button
+                onClick={onShowTextModal}
+                className="flex flex-col items-center gap-2 transition-transform active:scale-95"
+              >
+                <div className="w-16 h-16 rounded-full bg-pink-500/10 flex items-center justify-center">
+                  <svg className="w-7 h-7 text-pink-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <path d="M14 2v6h6M16 13H8m8 4H8m2-8H8" />
+                  </svg>
+                </div>
+                <span className="text-xs text-foreground">文本</span>
+              </button>
+
+              <button
+                onClick={onSelectFiles}
+                className="flex flex-col items-center gap-2 transition-transform active:scale-95"
+              >
+                <div className="w-16 h-16 rounded-full bg-purple-500/10 flex items-center justify-center">
+                  <svg className="w-7 h-7 text-purple-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                </div>
+                <span className="text-xs text-foreground">文件夹</span>
+              </button>
+            </div>
+
+            {/* 已选择内容预览 - 仅移动端显示 */}
+            {(selectedFiles.length > 0 || text.trim()) && (
+              <div className="mt-3 p-3 bg-secondary rounded-xl border border-black/20">
+                {selectedFiles.length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-green-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+                      <path d="M13 2v7h7" />
+                    </svg>
+                    <span className="text-sm text-foreground truncate flex-1">
+                      {selectedFiles.length === 1
+                        ? selectedFiles[0].name
+                        : `${selectedFiles.length} 个文件`}
+                    </span>
+                    <button
+                      onClick={() => onFilesChange([])}
+                      className="p-1 hover:bg-hover rounded transition-colors flex-shrink-0"
+                    >
+                      <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-pink-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                      <path d="M14 2v6h6M16 13H8m8 4H8m2-8H8" />
+                    </svg>
+                    <span className="text-sm text-foreground truncate flex-1">{text}</span>
+                    <button
+                      onClick={() => onTextChange('')}
+                      className="p-1 hover:bg-hover rounded transition-colors flex-shrink-0"
+                    >
+                      <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 模式切换 - 仅桌面端显示 */}
+          <div className="hidden md:flex gap-1 bg-secondary border border-custom rounded-xl p-1">
             <button
               onClick={() => onModeChange('file')}
               className={`mode-btn ${mode === 'file' ? 'active' : ''}`}
@@ -135,110 +254,106 @@ export function TransferPage({
             </button>
           </div>
 
-          {/* 内容区 */}
-          {mode === 'file' ? (
-            <FileDropZone
-              files={selectedFiles}
-              onFilesChange={onFilesChange}
-              onSelectFiles={onSelectFiles}
-              isDragging={isDragging}
-              isSending={isSending}
-              sendProgress={sendProgress}
-            />
-          ) : (
-            <TextInput value={text} onChange={onTextChange} />
-          )}
+          {/* 内容区 - 仅桌面端显示 */}
+          <div className="hidden md:block">
+            {mode === 'file' ? (
+              <FileDropZone
+                files={selectedFiles}
+                onFilesChange={onFilesChange}
+                onSelectFiles={onSelectFiles}
+                isDragging={isDragging}
+                isSending={isSending}
+                sendProgress={sendProgress}
+              />
+            ) : (
+              <TextInput value={text} onChange={onTextChange} />
+            )}
+          </div>
 
           {/* 设备列表 */}
           <div>
-            <h2 className="text-base font-medium mb-3">选择设备</h2>
+            <h2 className="text-sm font-medium mb-3">
+              选择设备
+              {(mode === 'file' ? selectedFiles.length > 0 : text.trim().length > 0) && devices.length > 0 && !isSending && (
+                <span className="text-xs text-muted font-normal ml-1">(点击设备即可发送)</span>
+              )}
+            </h2>
             <DeviceList
               devices={devices}
               selectedDevice={selectedDevice}
               onSelectDevice={onSelectDevice}
+              onSendToDevice={(deviceId) => {
+                // 先选中设备，然后直接发送到该设备
+                onSelectDevice(deviceId);
+                onSend(deviceId);
+              }}
+              canSend={mode === 'file' ? selectedFiles.length > 0 : text.trim().length > 0}
             />
           </div>
 
-          {/* 发送按钮 */}
-          <button
-            onClick={onSend}
-            disabled={!selectedDevice || (mode === 'file' ? selectedFiles.length === 0 : !text.trim()) || isSending}
-            className="w-full h-12 rounded-xl font-semibold text-base transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-accent text-white hover:bg-accent-hover active:scale-[0.98]"
-          >
-            {isSending ? (
-              <>
-                <div className="spinner"></div>
-                {sendProgress ? `${sendProgress.percent}%` : '发送中...'}
-              </>
-            ) : (
-              <>
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 19V5M5 12l7-7 7 7" />
-                </svg>
-                {mode === 'file'
-                  ? selectedFiles.length > 0 ? `发送 ${selectedFiles.length} 个文件` : '发送文件'
-                  : text.trim() ? '发送文本' : '发送'}
-              </>
-            )}
-          </button>
+          {/* 提示文本 */}
+          {/* 已移至标题中显示 */}
+
+          {/* 发送进度 */}
+          {isSending && sendProgress && (
+            <div className="bg-secondary border border-custom rounded-lg p-3">
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className="spinner w-4 h-4"></div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium truncate">{sendProgress.currentFile}</div>
+                  <div className="text-[10px] text-muted mt-0.5">
+                    {sendProgress.totalSize > 0
+                      ? `${formatSize(sendProgress.sentSize || 0)} / ${formatSize(sendProgress.totalSize)}`
+                      : '正在发送...'}
+                  </div>
+                </div>
+                <div className="text-xs font-semibold text-accent">{sendProgress.percent}%</div>
+              </div>
+              <div className="w-full h-1.5 bg-tertiary rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-accent transition-all duration-300 rounded-full"
+                  style={{ width: `${sendProgress.percent}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* 传输记录 - 移动端 */}
           <div className="min-[1024px]:hidden">
-            <div className="pt-6 pb-3 flex items-center justify-between">
-              <h2 className="text-base font-medium">传输记录</h2>
-              {history.length > 0 && (
-                <button onClick={onClearHistory} className="text-xs text-danger hover:text-danger/80 font-medium">
-                  清空
-                </button>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-medium">今日传输</h2>
+              {todayHistory.length > 0 && (
+                <span className="text-xs text-muted">{todayHistory.length} 条记录</span>
               )}
             </div>
             <div>
-              {history.length === 0 ? (
+              {todayHistory.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center mb-2">
                     <svg className="w-5 h-5 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <p className="text-xs text-muted">暂无记录</p>
+                  <p className="text-xs text-muted">今日暂无记录</p>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {history.filter(item => item.direction === 'received').slice(0, 3).map((item) => (
-                    <button
+                  {todayHistory.slice(0, 5).map((item) => (
+                    <HistoryItem
                       key={item.id}
-                      onClick={() => item.type === 'text' && item.content ? onCopyText(item.content, item.id) : item.filePath && onDownloadFile(item.filePath, item.fileName!, item.id)}
-                      className="w-full p-2.5 rounded-lg bg-secondary hover:bg-hover transition-colors text-left border border-custom relative"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${item.type === 'text' ? 'bg-accent/10' : 'bg-success/10'
-                          }`}>
-                          {item.type === 'text' ? (
-                            <svg className="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                            </svg>
-                          ) : (
-                            <svg className="w-3.5 h-3.5 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
-                              <path d="M13 2v7h7" />
-                            </svg>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-medium truncate">
-                            {item.type === 'text' ? item.content : item.fileName}
-                          </div>
-                          <div className="text-[10px] text-muted mt-0.5">
-                            {item.direction === 'sent' ? '已发送' : '已接收'}
-                          </div>
-                        </div>
-                        {copiedId === item.id && (
-                          <div className="text-[10px] px-2 py-1 rounded bg-success/20 text-success font-medium flex-shrink-0">
-                            已复制
-                          </div>
-                        )}
-                      </div>
-                    </button>
+                      item={item}
+                      copiedId={copiedId}
+                      copyFailedId={copyFailedId}
+                      copiedTextIds={copiedTextIds}
+                      downloadingId={downloadingId}
+                      downloadFailedId={downloadFailedId}
+                      downloadedIds={downloadedIds}
+                      downloadFailedIds={downloadFailedIds}
+                      downloadProgressMap={downloadProgressMap}
+                      onCopyText={onCopyText}
+                      onDownloadFile={onDownloadFile}
+                      compact={true}
+                    />
                   ))}
                 </div>
               )}

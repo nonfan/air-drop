@@ -14,6 +14,7 @@ module.exports = {
         tertiary: 'var(--bg-tertiary)',
         hover: 'var(--bg-hover)',
         border: 'var(--border)',
+        divider: 'var(--divider)',
         muted: 'var(--text-muted)',
         accent: 'var(--accent)',
         'accent-hover': 'var(--accent-hover)',

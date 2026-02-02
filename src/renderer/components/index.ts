@@ -8,3 +8,4 @@ export { Titlebar } from './Titlebar';
 export { QRModal } from './QRModal';
 export { SettingsPage } from './SettingsPage';
 export { Logo } from './Logo';
+export { Footer } from './Footer';

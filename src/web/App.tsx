@@ -1,36 +1,225 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Header } from './components/Header';
-import { Sidebar } from './components/Sidebar';
-import { TransferPage } from './components/TransferPage';
-import { SettingsPage } from './components/SettingsPage';
+import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import {
+  TextModal,
+  Toast,
+  MobileLayout,
+  DesktopLayout
+} from './components';
+import { TransferPageView, HistoryPageView, SettingsPageView } from './pages';
+import { AppContext } from './contexts/AppContext';
 import type { Device, FileItem, TransferProgress, HistoryItem, Settings, View } from './types';
 import iconUrl from './assets/icon.png';
 import { io, Socket } from 'socket.io-client';
 
-// 生成随机设备名称
+// 从 User Agent 中提取设备型号
+function getDeviceModel(): string {
+  const ua = navigator.userAgent;
+
+  // iPhone 检测
+  if (/iPhone/.test(ua)) {
+    // 尝试提取 iPhone 型号
+    const match = ua.match(/iPhone\s?(\d+[,_]\d+)?/);
+    if (match) {
+      // iPhone 型号映射
+      const modelMap: { [key: string]: string } = {
+        'iPhone15,2': 'iPhone 14 Pro',
+        'iPhone15,3': 'iPhone 14 Pro Max',
+        'iPhone14,7': 'iPhone 14',
+        'iPhone14,8': 'iPhone 14 Plus',
+        'iPhone14,4': 'iPhone 13 mini',
+        'iPhone14,5': 'iPhone 13',
+        'iPhone14,2': 'iPhone 13 Pro',
+        'iPhone14,3': 'iPhone 13 Pro Max',
+        'iPhone13,1': 'iPhone 12 mini',
+        'iPhone13,2': 'iPhone 12',
+        'iPhone13,3': 'iPhone 12 Pro',
+        'iPhone13,4': 'iPhone 12 Pro Max',
+      };
+
+      const model = match[1]?.replace('_', ',');
+      if (model && modelMap[`iPhone${model}`]) {
+        return modelMap[`iPhone${model}`];
+      }
+    }
+    return 'iPhone';
+  }
+
+  // iPad 检测
+  if (/iPad/.test(ua)) {
+    if (/iPad.*Pro/.test(ua)) {
+      return 'iPad Pro';
+    }
+    if (/iPad.*Air/.test(ua)) {
+      return 'iPad Air';
+    }
+    if (/iPad.*Mini/.test(ua)) {
+      return 'iPad Mini';
+    }
+    return 'iPad';
+  }
+
+  // Android 检测
+  if (/Android/.test(ua)) {
+    // 尝试提取品牌和型号
+    const brands = [
+      { pattern: /Xiaomi|MI|Redmi/i, name: '小米' },
+      { pattern: /HUAWEI|Honor/i, name: '华为' },
+      { pattern: /OPPO/i, name: 'OPPO' },
+      { pattern: /vivo/i, name: 'vivo' },
+      { pattern: /OnePlus/i, name: '一加' },
+      { pattern: /Samsung|SM-/i, name: '三星' },
+      { pattern: /Pixel/i, name: 'Google Pixel' },
+    ];
+
+    for (const brand of brands) {
+      if (brand.pattern.test(ua)) {
+        // 尝试提取具体型号
+        const modelMatch = ua.match(/\(([^)]+)\)/);
+        if (modelMatch) {
+          const parts = modelMatch[1].split(';');
+          for (const part of parts) {
+            const trimmed = part.trim();
+            if (brand.pattern.test(trimmed)) {
+              return trimmed;
+            }
+          }
+        }
+        return brand.name;
+      }
+    }
+    return 'Android 设备';
+  }
+
+  // 桌面浏览器检测
+  if (/Macintosh|Mac OS X/.test(ua)) {
+    if (/Safari/.test(ua) && !/Chrome/.test(ua)) {
+      return 'Mac Safari';
+    }
+    if (/Chrome/.test(ua)) {
+      return 'Mac Chrome';
+    }
+    if (/Firefox/.test(ua)) {
+      return 'Mac Firefox';
+    }
+    return 'Mac';
+  }
+
+  if (/Windows/.test(ua)) {
+    if (/Edge/.test(ua)) {
+      return 'Windows Edge';
+    }
+    if (/Chrome/.test(ua)) {
+      return 'Windows Chrome';
+    }
+    if (/Firefox/.test(ua)) {
+      return 'Windows Firefox';
+    }
+    return 'Windows PC';
+  }
+
+  if (/Linux/.test(ua)) {
+    return 'Linux';
+  }
+
+  return '未知设备';
+}
+
+// 生成设备名称（基于真实设备型号）
 function generateDeviceName(): string {
-  const isMobile = navigator.userAgent.includes('Mobile');
-  const adjectives = ['快乐的', '勇敢的', '聪明的', '可爱的', '神秘的', '闪亮的'];
-  const animals = ['熊猫', '狐狸', '企鹅', '海豚', '猫咪', '兔子'];
-  const randomAdj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const randomAnimal = animals[Math.floor(Math.random() * animals.length)];
+  const deviceModel = getDeviceModel();
   const randomNum = Math.floor(Math.random() * 1000);
 
-  if (isMobile) {
-    return `iPhone-${randomAdj}${randomAnimal}${randomNum}`;
-  } else {
-    return `浏览器-${randomAdj}${randomAnimal}${randomNum}`;
+  // 如果是移动设备，添加随机数以区分同型号设备
+  if (/iPhone|iPad|Android|小米|华为|OPPO|vivo|一加|三星|Pixel/.test(deviceModel)) {
+    return `${deviceModel}-${randomNum}`;
   }
+
+  // 桌面设备直接使用型号
+  return deviceModel;
 }
 
 export default function App() {
-  const [view, setView] = useState<View>('transfer');
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
+  );
+}
+
+function AppContent() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // 从路由路径获取当前视图
+  const getCurrentView = (): View => {
+    const path = location.pathname;
+    if (path === '/history') return 'history';
+    if (path === '/settings') return 'settings';
+    return 'transfer';
+  };
+
+  const [view, setView] = useState<View>(getCurrentView());
   const [mode, setMode] = useState<'file' | 'text'>('file');
-  const [devices, setDevices] = useState<Device[]>([]);
+  const [devices, setDevices] = useState<Device[]>([
+    {
+      id: 'placeholder-1',
+      name: '我的 MacBook Pro',
+      model: 'macOS 14.0',
+      ip: '192.168.1.100',
+      type: 'pc'
+    },
+    {
+      id: 'placeholder-2',
+      name: 'iPhone 15 Pro',
+      model: 'iOS 17.0',
+      ip: '192.168.1.101',
+      type: 'mobile'
+    },
+    {
+      id: 'placeholder-3',
+      name: 'Windows 台式机',
+      model: 'Windows 11',
+      ip: '192.168.1.102',
+      type: 'pc'
+    }
+  ]);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([]);
   const [text, setText] = useState('');
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([
+    {
+      id: 'history-1',
+      type: 'file',
+      fileName: '项目文档.pdf',
+      fileSize: 2048576,
+      filePath: '/downloads/项目文档.pdf',
+      timestamp: Date.now() - 300000,
+      status: 'success',
+      direction: 'received',
+      from: '我的 MacBook Pro'
+    },
+    {
+      id: 'history-2',
+      type: 'text',
+      content: '这是一段测试文本消息，用于预览UI效果',
+      timestamp: Date.now() - 600000,
+      status: 'success',
+      direction: 'received',
+      from: 'iPhone 15 Pro'
+    },
+    {
+      id: 'history-3',
+      type: 'file',
+      fileName: '照片_2024.jpg',
+      fileSize: 5242880,
+      filePath: '/downloads/照片_2024.jpg',
+      timestamp: Date.now() - 900000,
+      status: 'success',
+      direction: 'received',
+      from: 'Windows 台式机'
+    }
+  ]);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [settings, setSettings] = useState<Settings>(() => {
     // 从 localStorage 读取或生成新的设备名称
@@ -45,7 +234,9 @@ export default function App() {
     return {
       deviceName: generateDeviceName(),
       theme: 'dark',
-      showNotifications: false
+      showNotifications: false,
+      discoverable: true,
+      accentColor: 'blue'
     };
   });
   const [isSending, setIsSending] = useState(false);
@@ -86,6 +277,42 @@ export default function App() {
   const [appVersion, setAppVersion] = useState<string>('1.0.0');
   const [showAllHistory, setShowAllHistory] = useState(false);
 
+  const [showTextModal, setShowTextModal] = useState(false);
+
+  // 检测是否为移动设备
+  const [isMobile, setIsMobile] = useState(() => {
+    return window.innerWidth < 768 || /Mobile|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  });
+
+  // 同步路由和视图状态
+  useEffect(() => {
+    const newView = getCurrentView();
+    if (newView !== view) {
+      setView(newView);
+    }
+  }, [location.pathname]);
+
+  // 视图切换函数 - 使用路由导航
+  const handleViewChange = useCallback((newView: View) => {
+    setView(newView);
+    const pathMap: Record<View, string> = {
+      transfer: '/',
+      history: '/history',
+      settings: '/settings'
+    };
+    navigate(pathMap[newView]);
+  }, [navigate]);
+
+  // 监听窗口大小变化
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768 || /Mobile|Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // 保存上次选择的设备ID
   const saveLastDevice = useCallback((deviceId: string) => {
     localStorage.setItem('windrop-last-device', deviceId);
@@ -120,7 +347,10 @@ export default function App() {
     if (savedHistory) {
       try {
         const parsed = JSON.parse(savedHistory);
-        setHistory(parsed);
+        // 只有当 localStorage 中有数据时才覆盖测试数据
+        if (parsed && parsed.length > 0) {
+          setHistory(parsed);
+        }
       } catch (e) {
         console.error('Failed to parse history:', e);
       }
@@ -155,6 +385,42 @@ export default function App() {
     }
   }, [settings.theme]);
 
+  // 应用主题色
+  useEffect(() => {
+    const accentColorMap: Record<string, string> = {
+      blue: '#3b82f6',
+      green: '#22c55e',
+      purple: '#a855f7',
+      pink: '#ec4899',
+      orange: '#f97316'
+    };
+
+    const color = accentColorMap[settings.accentColor] || accentColorMap.blue;
+    document.documentElement.style.setProperty('--accent', color);
+
+    // 计算 hover 颜色（稍微深一点）
+    const hoverColorMap: Record<string, string> = {
+      blue: '#2563eb',
+      green: '#16a34a',
+      purple: '#9333ea',
+      pink: '#db2777',
+      orange: '#ea580c'
+    };
+    const hoverColor = hoverColorMap[settings.accentColor] || hoverColorMap.blue;
+    document.documentElement.style.setProperty('--accent-hover', hoverColor);
+
+    // 计算背景颜色（15% 透明度）
+    const accentBgMap: Record<string, string> = {
+      blue: 'rgba(59, 130, 246, 0.15)',
+      green: 'rgba(34, 197, 94, 0.15)',
+      purple: 'rgba(168, 85, 247, 0.15)',
+      pink: 'rgba(236, 72, 153, 0.15)',
+      orange: 'rgba(249, 115, 22, 0.15)'
+    };
+    const accentBg = accentBgMap[settings.accentColor] || accentBgMap.blue;
+    document.documentElement.style.setProperty('--accent-bg', accentBg);
+  }, [settings.accentColor]);
+
   // 请求通知权限
   useEffect(() => {
     if (settings.showNotifications && 'Notification' in window && Notification.permission === 'default') {
@@ -173,9 +439,22 @@ export default function App() {
   useEffect(() => {
     // 在开发模式下，Socket.IO 服务器运行在不同的端口
     const isDev = import.meta.env.DEV;
-    const socketUrl = isDev
-      ? 'http://localhost:8080'  // 开发模式：连接到 Electron 的 webServer
-      : window.location.origin;   // 生产模式：连接到当前页面的服务器
+
+    // 尝试从 localStorage 获取上次连接的地址
+    const lastConnectedUrl = localStorage.getItem('windrop-last-server-url');
+
+    let socketUrl: string;
+
+    if (lastConnectedUrl && !isDev) {
+      // 如果有上次连接的地址，优先使用
+      socketUrl = lastConnectedUrl;
+      console.log('[Socket.IO] Using last connected URL:', socketUrl);
+    } else {
+      // 否则使用默认地址
+      socketUrl = isDev
+        ? 'http://localhost:8080'  // 开发模式：连接到 Electron 的 webServer
+        : window.location.origin;   // 生产模式：连接到当前页面的服务器
+    }
 
     console.log('[Socket.IO] Connecting to:', socketUrl);
 
@@ -192,6 +471,8 @@ export default function App() {
         name: settings.deviceName,
         model: navigator.userAgent
       });
+      // 主动请求设备列表
+      socketInstance.emit('get-devices');
     });
 
     socketInstance.on('connected', (data: { clientId: string; deviceName: string; appVersion: string }) => {
@@ -199,9 +480,19 @@ export default function App() {
       if (data.appVersion) {
         setAppVersion(data.appVersion);
       }
+
+      // 保存成功连接的服务器地址
+      if (!import.meta.env.DEV) {
+        localStorage.setItem('windrop-last-server-url', socketUrl);
+        console.log('[Socket.IO] Saved server URL for future connections');
+      }
+
+      // 连接成功后再次请求设备列表，确保获取到最新的设备信息
+      socketInstance.emit('get-devices');
     });
 
     socketInstance.on('devices-updated', (data: { devices: Device[] }) => {
+      console.log('[Socket.IO] Received devices-updated:', data.devices);
       setDevices(data.devices);
     });
 
@@ -334,11 +625,21 @@ export default function App() {
 
     socketInstance.on('reconnect', (attemptNumber: number) => {
       console.log('Socket.IO reconnected after', attemptNumber, 'attempts');
+      // 重新连接后请求设备列表
+      socketInstance.emit('get-devices');
     });
 
     setSocket(socketInstance);
 
+    // 定期刷新设备列表（每10秒）
+    const deviceRefreshInterval = setInterval(() => {
+      if (socketInstance.connected) {
+        socketInstance.emit('get-devices');
+      }
+    }, 10000);
+
     return () => {
+      clearInterval(deviceRefreshInterval);
       socketInstance.disconnect();
     };
   }, [settings.deviceName, showNotification]);
@@ -378,8 +679,10 @@ export default function App() {
   }, []);
 
   // 发送文件
-  const handleSendFiles = useCallback(async () => {
-    if (!socket || !selectedDevice || selectedFiles.length === 0) return;
+  const handleSendFiles = useCallback(async (targetDeviceId?: string) => {
+    // 使用传入的 deviceId 或当前选中的设备
+    const deviceId = targetDeviceId || selectedDevice;
+    if (!socket || !deviceId || selectedFiles.length === 0) return;
 
     if (!socket.connected) {
       console.error('Socket.IO not connected');
@@ -392,12 +695,12 @@ export default function App() {
       for (const fileItem of selectedFiles) {
         const formData = new FormData();
         formData.append('file', fileItem.file);
-        formData.append('targetId', selectedDevice);
+        formData.append('targetId', deviceId);
         formData.append('fileName', fileItem.name);
 
         // 使用完整 URL 确保端口正确
         const uploadUrl = `${window.location.origin}/api/upload`;
-        console.log('Uploading to:', uploadUrl);
+        console.log('Uploading to:', uploadUrl, 'targetId:', deviceId);
 
         const response = await fetch(uploadUrl, {
           method: 'POST',
@@ -412,7 +715,7 @@ export default function App() {
       }
 
       // 保存上次选择的设备
-      saveLastDevice(selectedDevice);
+      saveLastDevice(deviceId);
 
       setSelectedFiles([]);
       setIsSending(false);
@@ -427,8 +730,10 @@ export default function App() {
   }, [socket, selectedDevice, selectedFiles, saveLastDevice]);
 
   // 发送文本
-  const handleSendText = useCallback(() => {
-    if (!socket || !selectedDevice || !text.trim()) return;
+  const handleSendText = useCallback((targetDeviceId?: string) => {
+    // 使用传入的 deviceId 或当前选中的设备
+    const deviceId = targetDeviceId || selectedDevice;
+    if (!socket || !deviceId || !text.trim()) return;
 
     if (!socket.connected) {
       console.error('Socket.IO not connected');
@@ -438,11 +743,13 @@ export default function App() {
     try {
       socket.emit('send-text', {
         text: text.trim(),
-        targetId: selectedDevice
+        targetId: deviceId
       });
 
+      console.log('Sent text to device:', deviceId);
+
       // 保存上次选择的设备
-      saveLastDevice(selectedDevice);
+      saveLastDevice(deviceId);
 
       setText('');
     } catch (error) {
@@ -450,7 +757,14 @@ export default function App() {
     }
   }, [socket, selectedDevice, text, saveLastDevice]);
 
-  // 复制文本
+  // 统一的发送函数
+  const handleSend = useCallback((targetDeviceId?: string) => {
+    if (mode === 'file') {
+      handleSendFiles(targetDeviceId);
+    } else {
+      handleSendText(targetDeviceId);
+    }
+  }, [mode, handleSendFiles, handleSendText]);
   const handleCopyText = useCallback(async (content: string, id: string) => {
     // 清除之前的状态
     setCopyFailedId(null);
@@ -580,81 +894,97 @@ export default function App() {
     }
   }, [downloadedIds, downloadFailedIds, downloadFailedId, socket]);
 
+  // Context 值
+  const contextValue = {
+    mode,
+    devices,
+    selectedDevice,
+    selectedFiles,
+    text,
+    history,
+    settings,
+    isSending,
+    sendProgress,
+    downloadProgress,
+    isDragging,
+    copiedId,
+    copyFailedId,
+    copiedTextIds,
+    downloadingId,
+    downloadFailedId,
+    downloadedIds,
+    downloadFailedIds,
+    downloadProgressMap,
+    showAllHistory,
+    appVersion,
+    isMobile,
+    setMode,
+    onSelectDevice: setSelectedDevice,
+    onFilesChange: setSelectedFiles,
+    onSelectFiles: handleSelectFiles,
+    onTextChange: setText,
+    onSend: handleSend,
+    onCopyText: handleCopyText,
+    onDownloadFile: handleDownloadFile,
+    onClearHistory: handleClearHistory,
+    onToggleShowAll: () => setShowAllHistory(!showAllHistory),
+    onSaveSettings: saveSettings,
+    onShowTextModal: () => setShowTextModal(true)
+  };
+
   return (
-    <div
-      className="flex h-screen bg-background text-foreground"
-      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-      onDragLeave={() => setIsDragging(false)}
-      onDrop={handleDrop}
-    >
-      {/* 左侧边栏 */}
-      <Sidebar view={view} onViewChange={setView} />
-
-      {/* 主内容区 */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* 顶部标题栏 - 固定 */}
-        <div className="flex-shrink-0">
-          <Header view={view} onViewChange={setView} />
-        </div>
-
-        {/* 内容区域 - 可滚动 */}
-        <div className="flex-1 overflow-hidden">
-          {view === 'settings' ? (
-            <div className="h-full overflow-y-auto">
-              <SettingsPage settings={settings} onSaveSettings={saveSettings} />
-            </div>
-          ) : (
-            <TransferPage
-              mode={mode}
-              onModeChange={setMode}
-              devices={devices}
-              selectedDevice={selectedDevice}
-              onSelectDevice={setSelectedDevice}
-              selectedFiles={selectedFiles}
-              onFilesChange={setSelectedFiles}
-              onSelectFiles={handleSelectFiles}
-              text={text}
-              onTextChange={setText}
-              isDragging={isDragging}
-              isSending={isSending}
-              sendProgress={sendProgress}
-              downloadProgress={downloadProgress}
-              onSend={mode === 'file' ? handleSendFiles : handleSendText}
-              history={history}
-              showAllHistory={showAllHistory}
-              onToggleShowAll={() => setShowAllHistory(!showAllHistory)}
-              onClearHistory={handleClearHistory}
-              copiedId={copiedId}
-              copyFailedId={copyFailedId}
-              copiedTextIds={copiedTextIds}
-              downloadingId={downloadingId}
-              downloadFailedId={downloadFailedId}
-              downloadedIds={downloadedIds}
-              downloadFailedIds={downloadFailedIds}
-              downloadProgressMap={downloadProgressMap}
-              onCopyText={handleCopyText}
-              onDownloadFile={handleDownloadFile}
-            />
-          )}
-        </div>
-
-        {/* Footer - 横跨整个底部 */}
-        {view === 'transfer' && (
-          <div className="flex-shrink-0 px-6 py-3 border-t border-border bg-secondary/50 hidden min-[1024px]:block">
-            <div className="flex items-center justify-between text-xs text-muted">
-              <span>{settings.deviceName}</span>
-              <span>v{appVersion}</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Toast 通知 - 仅用于极少数情况 */}
-      {toast && (
-        <div className="toast fade-in">
-          <p className="text-sm font-medium">{toast}</p>
-        </div>
+    <AppContext.Provider value={contextValue}>
+      {isMobile ? (
+        // 移动端布局
+        <MobileLayout
+          view={view}
+          deviceName={settings.deviceName}
+          historyCount={history.length}
+          onViewChange={handleViewChange}
+          onClearHistory={handleClearHistory}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+        >
+          <Routes>
+            <Route path="/" element={<TransferPageView />} />
+            <Route path="/history" element={<HistoryPageView />} />
+            <Route path="/settings" element={<SettingsPageView />} />
+          </Routes>
+        </MobileLayout>
+      ) : (
+        // 桌面端布局
+        <DesktopLayout
+          view={view}
+          deviceName={settings.deviceName}
+          appVersion={appVersion}
+          onViewChange={handleViewChange}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+        >
+          <Routes>
+            <Route path="/" element={<TransferPageView />} />
+            <Route path="/history" element={<HistoryPageView />} />
+            <Route path="/settings" element={<SettingsPageView />} />
+          </Routes>
+        </DesktopLayout>
       )}
-    </div>
+
+      {/* 文本输入弹窗 - 仅移动端 */}
+      {isMobile && (
+        <TextModal
+          isOpen={showTextModal}
+          text={text}
+          onTextChange={setText}
+          onClose={() => setShowTextModal(false)}
+          onSend={handleSend}
+          disabled={!text.trim() || !selectedDevice}
+        />
+      )}
+
+      {/* Toast 通知 */}
+      <Toast message={toast} />
+    </AppContext.Provider>
   );
 }

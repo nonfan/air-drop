@@ -1,22 +1,24 @@
 import { BrowserWindow, Notification } from 'electron';
-import * as path from 'path';
 import { DeviceDiscovery, Device } from './discovery';
 import { BroadcastDiscovery } from './broadcastDiscovery';
 import { FileTransferServer } from './transfer';
 import { PeerTransferService } from './peerTransfer';
 import { WebFileServer } from './webServer';
 import { store } from '../store';
-import { APP_CONFIG } from '../config';
 import { addTransferRecord, addTextRecord } from '../utils/history';
 import { flashWindow } from '../window';
+import { NotificationManager } from '../utils/notifications';
 import { EventEmitter } from 'events';
+import path from 'path';
+import { APP_CONFIG } from '../config';
 
 // 通用设备发现接口
 export interface IDeviceDiscovery extends EventEmitter {
-  start(peerId?: string): Promise<void>;
-  stop(): void;
+  start(): Promise<void>;
+  stop(): Promise<void>;
   getDevices(): Device[];
-  updatePeerId(peerId: string): void;
+  setPeerId(peerId: string): void;
+  updatePeerId(peerId: string): void; // 兼容旧代码
 }
 
 export interface Services {
@@ -27,86 +29,147 @@ export interface Services {
   webServerURL: string;
 }
 
+/**
+ * 初始化所有服务
+ */
 export async function initializeServices(
   downloadPath: string,
   deviceName: string,
   mainWindow: BrowserWindow | null
 ): Promise<Services> {
-  // PeerJS 传输服务
-  const peerTransferService = new PeerTransferService(downloadPath, deviceName, (info) => {
-    mainWindow?.webContents.send('incoming-file', info);
-    flashWindow(mainWindow);
-    
-    if (store.get('showNotifications')) {
-      const fileCount = info.files.length;
-      const notification = new Notification({
-        title: `${APP_CONFIG.APP_NAME} - 收到文件`,
-        body: fileCount === 1 
-          ? `${info.senderName} 发送了: ${info.files[0].name}` 
-          : `${info.senderName} 发送了 ${fileCount} 个文件`,
-        silent: false
-      });
-      notification.on('click', () => mainWindow?.show());
-      notification.show();
-    }
-    
-    if (store.get('autoAccept')) {
-      peerTransferService.acceptTransfer(info.transferId);
-    }
-  });
+  // 1. 启动 PeerJS 传输服务
+  const peerTransferService = await initPeerTransferService(
+    downloadPath, 
+    deviceName, 
+    mainWindow
+  );
+  const peerId = peerTransferService.getPeerId();
+  
+  // 2. 启动 WebSocket 传输服务（备用）
+  const { server: transferServer, port } = await initTransferServer(
+    downloadPath, 
+    deviceName, 
+    mainWindow
+  );
+  
+  // 3. 启动设备发现服务
+  const discovery = await initDiscoveryService(
+    deviceName, 
+    port, 
+    peerId, 
+    mainWindow
+  );
+  
+  // 4. 启动 Web 服务器（手机访问）
+  const webServer = await initWebServer(
+    downloadPath, 
+    deviceName, 
+    mainWindow, 
+    discovery
+  );
+  
+  return {
+    discovery,
+    transferServer,
+    peerTransferService,
+    webServer,
+    webServerURL: webServer.getURL()
+  };
+}
+
+/**
+ * 初始化 PeerJS 传输服务
+ */
+async function initPeerTransferService(
+  downloadPath: string,
+  deviceName: string,
+  mainWindow: BrowserWindow | null
+): Promise<PeerTransferService> {
+  const peerTransferService = new PeerTransferService(
+    downloadPath, 
+    deviceName, 
+    (info) => handleIncomingFile(info, mainWindow, () => {
+      if (store.get('autoAccept')) {
+        peerTransferService.acceptTransfer(info.transferId);
+      }
+    })
+  );
   
   setupPeerTransferEvents(peerTransferService, mainWindow);
   await peerTransferService.start();
-  const peerId = peerTransferService.getPeerId();
-  console.log('PeerJS service started with ID:', peerId);
   
-  // WebSocket 传输服务（备用）
-  const transferServer = new FileTransferServer(downloadPath, deviceName, (info) => {
-    mainWindow?.webContents.send('incoming-file', info);
-    flashWindow(mainWindow);
-    
-    if (store.get('showNotifications')) {
-      const fileCount = info.files.length;
-      const notification = new Notification({
-        title: `${APP_CONFIG.APP_NAME} - 收到文件`,
-        body: fileCount === 1 
-          ? `${info.senderName} 发送了: ${info.files[0].name}` 
-          : `${info.senderName} 发送了 ${fileCount} 个文件`,
-        silent: false
-      });
-      notification.on('click', () => mainWindow?.show());
-      notification.show();
-    }
-    
-    if (store.get('autoAccept')) {
-      transferServer.acceptTransfer(info.transferId);
-    }
-  });
+  console.log('[ServiceManager] PeerJS service started with ID:', peerTransferService.getPeerId());
+  return peerTransferService;
+}
+
+/**
+ * 初始化 WebSocket 传输服务
+ */
+async function initTransferServer(
+  downloadPath: string,
+  deviceName: string,
+  mainWindow: BrowserWindow | null
+): Promise<{ server: FileTransferServer; port: number }> {
+  const transferServer = new FileTransferServer(
+    downloadPath, 
+    deviceName, 
+    (info) => handleIncomingFile(info, mainWindow, () => {
+      if (store.get('autoAccept')) {
+        transferServer.acceptTransfer(info.transferId);
+      }
+    })
+  );
   
   setupTransferServerEvents(transferServer, mainWindow);
   const port = await transferServer.start();
   
-  // 设备发现服务（优先使用 Bonjour，失败则使用广播）
+  console.log('[ServiceManager] Transfer server started on port:', port);
+  return { server: transferServer, port };
+}
+
+/**
+ * 初始化设备发现服务
+ */
+async function initDiscoveryService(
+  deviceName: string,
+  port: number,
+  peerId: string,
+  mainWindow: BrowserWindow | null
+): Promise<IDeviceDiscovery> {
   let discovery: IDeviceDiscovery;
-  const webServer = new WebFileServer(downloadPath, deviceName);
   
   try {
     console.log('[ServiceManager] Trying Bonjour discovery...');
     discovery = new DeviceDiscovery(deviceName, port);
-    setupDiscoveryEvents(discovery, mainWindow, webServer);
-    await discovery.start(peerId);
+    discovery.setPeerId(peerId);
+    await discovery.start();
     console.log('[ServiceManager] Bonjour discovery started successfully');
   } catch (err) {
-    console.warn('[ServiceManager] Bonjour discovery failed, using broadcast discovery:', err);
+    console.warn('[ServiceManager] Bonjour discovery failed, using broadcast:', err);
     discovery = new BroadcastDiscovery(deviceName, port);
-    setupDiscoveryEvents(discovery, mainWindow, webServer);
-    await discovery.start(peerId);
+    discovery.setPeerId(peerId);
+    await discovery.start();
     console.log('[ServiceManager] Broadcast discovery started successfully');
   }
+  
+  return discovery;
+}
 
-  // Web 服务器（手机访问）
+/**
+ * 初始化 Web 服务器
+ */
+async function initWebServer(
+  downloadPath: string,
+  deviceName: string,
+  mainWindow: BrowserWindow | null,
+  discovery: IDeviceDiscovery
+): Promise<WebFileServer> {
+  const webServer = new WebFileServer(downloadPath, deviceName);
+  
+  setupDiscoveryEvents(discovery, mainWindow, webServer);
   setupWebServerEvents(webServer, mainWindow, downloadPath);
   
+  // 尝试端口 80，失败则使用 8080
   try {
     await webServer.start(80);
   } catch (err: any) {
@@ -117,18 +180,34 @@ export async function initializeServices(
     }
   }
   
-  const webServerURL = webServer.getURL();
-  console.log(`Web server running at ${webServerURL}`);
-
-  return {
-    discovery,
-    transferServer,
-    peerTransferService,
-    webServer,
-    webServerURL
-  };
+  console.log('[ServiceManager] Web server running at:', webServer.getURL());
+  return webServer;
 }
 
+/**
+ * 处理接收文件请求
+ */
+function handleIncomingFile(
+  info: { transferId: string; senderName: string; files: any[]; totalSize: number },
+  mainWindow: BrowserWindow | null,
+  onAutoAccept: () => void
+): void {
+  mainWindow?.webContents.send('incoming-file', info);
+  flashWindow(mainWindow);
+  
+  const fileCount = info.files.length;
+  if (fileCount === 1) {
+    NotificationManager.showFileReceived(info.files[0].name, info.senderName, mainWindow);
+  } else {
+    NotificationManager.showFilesReceived(fileCount, info.senderName, mainWindow);
+  }
+  
+  onAutoAccept();
+}
+
+/**
+ * 设置 PeerTransfer 事件监听
+ */
 function setupPeerTransferEvents(
   peerTransferService: PeerTransferService,
   mainWindow: BrowserWindow | null

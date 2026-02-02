@@ -38,6 +38,8 @@ export interface Settings {
   deviceName: string;
   theme: 'system' | 'dark' | 'light';
   showNotifications: boolean;
+  discoverable: boolean;
+  accentColor: 'blue' | 'green' | 'purple' | 'pink' | 'orange';
 }
 
-export type View = 'transfer' | 'settings';
+export type View = 'transfer' | 'settings' | 'history';

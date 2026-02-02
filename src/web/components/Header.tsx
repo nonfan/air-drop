@@ -1,8 +1,10 @@
 import { Logo } from './Logo';
 
+import type { View } from '../types';
+
 interface HeaderProps {
-  view?: 'transfer' | 'settings';
-  onViewChange?: (view: 'transfer' | 'settings') => void;
+  view?: View;
+  onViewChange?: (view: View) => void;
 }
 
 export function Header({ view, onViewChange }: HeaderProps) {

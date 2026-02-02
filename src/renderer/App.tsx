@@ -8,7 +8,8 @@ import {
   TextInput,
   HistoryList,
   QRModal,
-  SettingsPage
+  SettingsPage,
+  Footer
 } from './components';
 import { useTheme, useScroll, usePaste } from './hooks';
 import { formatSize, formatTime } from './utils';
@@ -127,7 +128,16 @@ function App() {
       setSharedFiles(prev => prev.filter(f => f.targetId !== m.id));
     });
     window.windrop.onMobileUpdated((m) => {
-      setDevices(prev => prev.map(x => x.id === m.id ? { ...x, name: m.name, model: m.model } : x));
+      setDevices(prev => {
+        const exists = prev.find(x => x.id === m.id);
+        if (exists) {
+          // 更新现有设备
+          return prev.map(x => x.id === m.id ? { ...x, name: m.name, model: m.model } : x);
+        } else {
+          // 添加新设备（处理重连情况）
+          return [...prev, { ...m, type: 'mobile' as const }];
+        }
+      });
     });
     window.windrop.onIncomingFile(setIncomingTransfer);
     window.windrop.onSendProgress(setSendProgress);
@@ -138,6 +148,25 @@ function App() {
     window.windrop.onSendComplete((r) => {
       setIsSending(false);
       setSendProgress(null);
+
+      // 定期刷新移动端设备列表（每5秒）
+      const refreshInterval = setInterval(async () => {
+        try {
+          const mobileClients = await window.windrop.getMobileClients();
+          setDevices(prev => {
+            // 保留 PC 设备，更新移动端设备
+            const pcDevices = prev.filter(d => d.type === 'pc');
+            const mobileDevices = mobileClients.map(m => ({ ...m, type: 'mobile' as const }));
+            return [...pcDevices, ...mobileDevices];
+          });
+        } catch (error) {
+          console.error('Failed to refresh mobile clients:', error);
+        }
+      }, 5000);
+
+      return () => {
+        clearInterval(refreshInterval);
+      };
       setIsDownloading(false);
       if (r.success) {
         setSelectedFiles([]);
@@ -193,10 +222,14 @@ function App() {
     }
   };
 
-  const handleSend = async () => {
-    if (!selectedDevice || !selectedFiles.length) return;
-    const device = devices.find(d => d.id === selectedDevice);
+  const handleSend = async (targetDeviceId?: string) => {
+    // 使用传入的 deviceId 或当前选中的设备
+    const deviceId = targetDeviceId || selectedDevice;
+    if (!deviceId || !selectedFiles.length) return;
+
+    const device = devices.find(d => d.id === deviceId);
     if (!device) return;
+
     if (device.type === 'mobile') {
       for (const f of selectedFiles) {
         const id = await window.windrop.shareFileWeb(f.path, device.id);
@@ -206,17 +239,21 @@ function App() {
     } else {
       setIsSending(true);
       try {
-        await window.windrop.sendFiles(selectedDevice, selectedFiles.map(f => f.path));
+        await window.windrop.sendFiles(deviceId, selectedFiles.map(f => f.path));
       } catch {
         setIsSending(false);
       }
     }
   };
 
-  const handleSendText = async () => {
-    if (!selectedDevice || !textInput.trim()) return;
-    const device = devices.find(d => d.id === selectedDevice);
+  const handleSendText = async (targetDeviceId?: string) => {
+    // 使用传入的 deviceId 或当前选中的设备
+    const deviceId = targetDeviceId || selectedDevice;
+    if (!deviceId || !textInput.trim()) return;
+
+    const device = devices.find(d => d.id === deviceId);
     if (!device || device.type !== 'mobile') return;
+
     await window.windrop.shareTextWeb(textInput, device.id);
     setTextInput('');
   };
@@ -386,12 +423,11 @@ function App() {
 
           {/* Footer - 桌面端 */}
           {view === 'transfer' && (
-            <div className="flex-shrink-0 px-6 py-3 border-t border-border bg-secondary/50">
-              <div className="flex items-center justify-between text-xs text-muted">
-                <span>{settings?.deviceName || 'Airdrop'}</span>
-                <span>v{appVersion || '1.0.0'}</span>
-              </div>
-            </div>
+            <Footer
+              deviceName={settings?.deviceName}
+              version={appVersion || '1.0.0'}
+              variant="detailed"
+            />
           )}
         </main>
       </div>

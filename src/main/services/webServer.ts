@@ -80,6 +80,7 @@ export class WebFileServer extends EventEmitter {
         devices.push({ id, name: client.name, model: client.model, ip: client.ip, type: 'mobile' });
       }
     }
+    console.log(`[WebServer] getDeviceListForMobile (exclude: ${excludeClientId}):`, devices);
     return devices;
   }
 
@@ -709,19 +710,29 @@ export class WebFileServer extends EventEmitter {
     let clientName = `手机 ${ip.split('.').pop()}`;
     let isReconnect = false;
     
-    // 检查是否是重连
+    // 检查是否是重连（相同 IP 且 Socket 仍然连接）
     for (const [id, existingClient] of this.clients.entries()) {
-      if (existingClient.ip === ip) {
+      if (existingClient.ip === ip && existingClient.socket.connected) {
         clientId = id;
         clientName = existingClient.name;
         isReconnect = true;
+        console.log(`[WebServer] Client reconnecting: ${clientId} (${ip})`);
         existingClient.socket.disconnect();
         break;
       }
     }
     
+    // 清理相同 IP 的断开连接的客户端
+    for (const [id, existingClient] of this.clients.entries()) {
+      if (existingClient.ip === ip && !existingClient.socket.connected) {
+        console.log(`[WebServer] Removing disconnected client with same IP: ${id}`);
+        this.clients.delete(id);
+      }
+    }
+    
     if (!clientId) {
       clientId = uuidv4();
+      console.log(`[WebServer] New client connecting: ${clientId} (${ip})`);
     }
 
     const client: MobileClient = { 
@@ -751,12 +762,9 @@ export class WebFileServer extends EventEmitter {
     // 发送设备列表
     socket.emit('devices-updated', { devices: this.getDeviceListForMobile(clientId) });
 
-    if (isReconnect) {
-      this.emit('client-updated', { id: clientId, name: clientName, ip });
-    } else {
-      this.emit('client-connected', { id: clientId, name: clientName, ip });
-      this.broadcastDeviceList();
-    }
+    // 总是触发 client-connected 事件，确保 Desktop 端能收到通知
+    this.emit('client-connected', { id: clientId, name: clientName, ip });
+    this.broadcastDeviceList();
 
     // 设置设备名称
     socket.on('set-name', (data: { name: string; model?: string }) => {
@@ -769,7 +777,9 @@ export class WebFileServer extends EventEmitter {
 
     // 获取设备列表
     socket.on('get-devices', () => {
-      socket.emit('devices-updated', { devices: this.getDeviceListForMobile(clientId) });
+      const devices = this.getDeviceListForMobile(clientId);
+      console.log(`[WebServer] Client ${clientId} requested devices, sending:`, devices);
+      socket.emit('devices-updated', { devices });
     });
 
     // 发送文本

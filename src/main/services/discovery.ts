@@ -1,8 +1,8 @@
 import Bonjour, { Service } from 'bonjour-service';
-import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
-import { networkInterfaces } from 'os';
 import { APP_CONFIG } from '../config';
+import { BaseService } from './BaseService';
+import { NetworkUtils } from '../utils/network';
 
 export interface Device {
   id: string;
@@ -12,55 +12,72 @@ export interface Device {
   peerId?: string;
 }
 
-export class DeviceDiscovery extends EventEmitter {
+export class DeviceDiscovery extends BaseService {
   private bonjour: Bonjour;
   private browser: ReturnType<Bonjour['find']> | null = null;
-  private devices: Map<string, Device> = new Map();
-  private deviceId: string;
-  private deviceName: string;
-  private port: number;
-  private localIPs: Set<string>;
-  private peerId: string = '';
+  private devices = new Map<string, Device>();
+  private readonly deviceId: string;
+  private readonly deviceName: string;
+  private readonly port: number;
+  private readonly localIPs: Set<string>;
+  private peerId = '';
   private publishedService: any = null;
 
   constructor(deviceName: string, port: number) {
-    super();
+    super('Discovery');
     this.bonjour = new Bonjour();
     this.deviceId = uuidv4();
     this.deviceName = deviceName;
     this.port = port;
-    this.localIPs = this.getLocalIPs();
+    this.localIPs = NetworkUtils.getLocalIPs();
   }
 
-  private getLocalIPs(): Set<string> {
-    const ips = new Set<string>();
-    ips.add('127.0.0.1');
-    ips.add('localhost');
-    const nets = networkInterfaces();
-    for (const name of Object.keys(nets)) {
-      for (const net of nets[name] || []) {
-        if (net.family === 'IPv4') {
-          ips.add(net.address);
-        }
-      }
+  protected async onStart(): Promise<void> {
+    if (this.peerId) {
+      this.log('info', 'Starting with Peer ID:', this.peerId);
     }
-    return ips;
+    
+    this.log('info', 'Device ID:', this.deviceId);
+    this.log('info', 'Device Name:', this.deviceName);
+    this.log('info', 'Port:', this.port);
+    
+    // Publish service
+    await this.publishService();
+    
+    // Browse for devices
+    await this.browseDevices();
   }
 
-  async start(peerId?: string): Promise<void> {
-    if (peerId) {
-      this.peerId = peerId;
+  protected async onStop(): Promise<void> {
+    this.browser?.stop();
+    this.browser = null;
+    this.bonjour.unpublishAll();
+    this.bonjour.destroy();
+    this.devices.clear();
+  }
+
+  /**
+   * 设置 Peer ID（用于 WebRTC 连接）
+   */
+  setPeerId(peerId: string): void {
+    this.peerId = peerId;
+    if (this.isRunning) {
+      this.publishService();
     }
-    
-    console.log('[Discovery] Starting device discovery service...');
-    console.log('[Discovery] Device ID:', this.deviceId);
-    console.log('[Discovery] Device Name:', this.deviceName);
-    console.log('[Discovery] Port:', this.port);
-    console.log('[Discovery] Local IPs:', Array.from(this.localIPs));
-    
-    // Publish this device with unique name to avoid conflicts
+  }
+
+  /**
+   * 发布服务
+   */
+  private async publishService(): Promise<void> {
     const uniqueName = `${this.deviceName}-${this.deviceId.slice(0, 4)}`;
+    
     try {
+      // 先取消发布旧服务
+      if (this.publishedService) {
+        this.bonjour.unpublishAll();
+      }
+      
       this.publishedService = this.bonjour.publish({
         name: uniqueName,
         type: APP_CONFIG.SERVICE_TYPE,
@@ -71,100 +88,91 @@ export class DeviceDiscovery extends EventEmitter {
           peerId: this.peerId || ''
         }
       });
-      console.log('[Discovery] Published service:', uniqueName);
+      
+      this.log('info', 'Published service:', uniqueName);
     } catch (err) {
-      console.error('[Discovery] Failed to publish service:', err);
+      this.log('error', 'Failed to publish service:', err);
+      throw err;
     }
-
-    // Browse for other devices
-    console.log('[Discovery] Starting to browse for devices...');
-    this.browser = this.bonjour.find({ type: APP_CONFIG.SERVICE_TYPE }, (service: Service) => {
-      console.log('[Discovery] Found service:', service.name, service.addresses);
-      this.handleServiceFound(service);
-    });
-
-    this.browser.on('down', (service: Service) => {
-      console.log('[Discovery] Service went down:', service.name);
-      this.handleServiceLost(service);
-    });
-    
-    console.log('[Discovery] Device discovery service started');
   }
 
+  /**
+   * 浏览设备
+   */
+  private async browseDevices(): Promise<void> {
+    this.log('info', 'Starting to browse for devices...');
+    
+    this.browser = this.bonjour.find(
+      { type: APP_CONFIG.SERVICE_TYPE }, 
+      (service: Service) => this.handleServiceFound(service)
+    );
+
+    this.browser.on('down', (service: Service) => {
+      this.log('info', 'Service went down:', service.name);
+      this.handleServiceLost(service);
+    });
+  }
+
+  /**
+   * 处理发现的服务
+   */
   private handleServiceFound(service: Service): void {
     const txt = service.txt as Record<string, string> | undefined;
     const id = txt?.id;
     
-    // Skip if no id or if it's our own device
-    if (!id) return;
-    if (id === this.deviceId) return;
+    // 跳过无效或自身设备
+    if (!id || id === this.deviceId) return;
     
-    // Check by IP to avoid self-discovery issues
     const ip = service.addresses?.[0] || service.host;
-    if (this.localIPs.has(ip)) {
-      console.log('Skipping self device by IP:', ip);
+    
+    // 跳过本机 IP
+    if (NetworkUtils.isLocalIP(ip)) {
+      this.log('info', 'Skipping self device by IP:', ip);
       return;
     }
     
-    // Also skip if port matches our own (same machine)
-    if (service.port === this.port && this.localIPs.has(ip)) {
-      console.log('Skipping self device by port:', service.port);
+    // 跳过相同端口（同一机器）
+    if (service.port === this.port) {
+      this.log('info', 'Skipping self device by port:', service.port);
       return;
     }
     
-    const displayName = txt?.displayName || service.name;
-    const peerId = txt?.peerId || '';
     const device: Device = {
       id,
-      name: displayName,
+      name: txt?.displayName || service.name,
       ip,
       port: service.port,
-      peerId: peerId || undefined
+      peerId: txt?.peerId || undefined
     };
 
     this.devices.set(id, device);
-    this.emit('device-found', device);
+    this.log('info', 'Found device:', device.name, device.ip);
+    this.safeEmit('device-found', device);
   }
 
+  /**
+   * 处理丢失的服务
+   */
   private handleServiceLost(service: Service): void {
-    const id = service.txt?.id;
+    const id = (service.txt as Record<string, string> | undefined)?.id;
+    
     if (id && this.devices.has(id)) {
       this.devices.delete(id);
-      this.emit('device-lost', id);
+      this.safeEmit('device-lost', id);
     }
   }
 
+  /**
+   * 获取所有已发现的设备
+   */
   getDevices(): Device[] {
     return Array.from(this.devices.values());
   }
 
+  /**
+   * @deprecated 使用 setPeerId 代替
+   */
   updatePeerId(peerId: string): void {
-    this.peerId = peerId;
-    // Republish service with updated peerId
-    if (this.publishedService) {
-      this.bonjour.unpublishAll();
-      const uniqueName = `${this.deviceName}-${this.deviceId.slice(0, 4)}`;
-      try {
-        this.publishedService = this.bonjour.publish({
-          name: uniqueName,
-          type: APP_CONFIG.SERVICE_TYPE,
-          port: this.port,
-          txt: { 
-            id: this.deviceId, 
-            displayName: this.deviceName,
-            peerId: this.peerId
-          }
-        });
-        console.log('Updated Bonjour service with peerId:', peerId);
-      } catch (err) {
-        console.error('Failed to republish service:', err);
-      }
-    }
-  }
-
-  stop(): void {
-    this.browser?.stop();
-    this.bonjour.unpublishAll();
-    this.bonjour.destroy();
+    this.setPeerId(peerId);
   }
 }

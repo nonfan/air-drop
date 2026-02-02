@@ -1,11 +1,15 @@
 import { useState } from 'react';
+import { Footer } from './common/Footer';
 
 type Theme = 'system' | 'dark' | 'light';
+type AccentColor = 'blue' | 'green' | 'purple' | 'pink' | 'orange';
 
 interface Settings {
   deviceName: string;
   theme: Theme;
   showNotifications: boolean;
+  discoverable: boolean;
+  accentColor: AccentColor;
 }
 
 interface SettingsPageProps {
@@ -16,6 +20,22 @@ interface SettingsPageProps {
 export function SettingsPage({ settings, onSaveSettings }: SettingsPageProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(settings.deviceName);
+  const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const [showAccentMenu, setShowAccentMenu] = useState(false);
+
+  // 检测是否为移动设备
+  const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+  // 主题色配置
+  const accentColors = [
+    { id: 'blue' as AccentColor, name: '蓝色', color: '#3b82f6' },
+    { id: 'green' as AccentColor, name: '绿色', color: '#22c55e' },
+    { id: 'purple' as AccentColor, name: '紫色', color: '#a855f7' },
+    { id: 'pink' as AccentColor, name: '粉色', color: '#ec4899' },
+    { id: 'orange' as AccentColor, name: '橙色', color: '#f97316' }
+  ];
+
+  const currentAccentColor = accentColors.find(c => c.id === settings.accentColor) || accentColors[0];
 
   const handleSaveName = () => {
     if (tempName.trim()) {
@@ -40,148 +60,233 @@ export function SettingsPage({ settings, onSaveSettings }: SettingsPageProps) {
     }
   };
 
-  const handleRequestNotification = async () => {
-    if ('Notification' in window) {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        onSaveSettings({ showNotifications: true });
-        new Notification('通知已启用', {
-          body: '你将收到文件传输通知',
-          icon: '/icon.png'
-        });
-      }
-    }
+  const handleThemeChange = (theme: Theme) => {
+    onSaveSettings({ theme });
+    setShowThemeMenu(false);
   };
 
-  const notificationStatus = 'Notification' in window
-    ? Notification.permission
-    : 'unsupported';
+  const handleAccentColorChange = (color: AccentColor) => {
+    onSaveSettings({ accentColor: color });
+    setShowAccentMenu(false);
+  };
 
   return (
-    <div className="w-full h-full overflow-y-auto">
-      <div className="max-w-3xl mx-auto p-6 space-y-6 fade-in">
+    <div className="w-full h-full overflow-y-auto bg-background pb-20">
+      <div className="px-6 py-4 space-y-6">
+        {/* 用户信息卡片 */}
+        <div className="bg-secondary rounded-2xl p-5">
+          <div className="flex items-center gap-4">
+            {/* 头像 */}
+            <img
+              src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(settings.deviceName)}`}
+              alt="Avatar"
+              className="w-16 h-16 rounded-full bg-tertiary flex-shrink-0"
+            />
+            {/* 设备名称 */}
+            <div className="flex-1 min-w-0">
+              {isEditingName ? (
+                <input
+                  type="text"
+                  value={tempName}
+                  onChange={(e) => setTempName(e.target.value)}
+                  onBlur={handleBlur}
+                  onKeyDown={handleKeyDown}
+                  className="w-full px-3 py-2 bg-tertiary border border-border rounded-lg text-base font-medium focus:border-accent focus:outline-none"
+                  autoFocus
+                  placeholder="输入设备名称"
+                />
+              ) : (
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-medium text-foreground truncate">{settings.deviceName}</h2>
+                  <button
+                    onClick={() => {
+                      setIsEditingName(true);
+                      setTempName(settings.deviceName);
+                    }}
+                    className="p-1 hover:bg-hover rounded flex-shrink-0"
+                  >
+                    <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+              <p className="text-xs text-muted mt-1">在局域网中显示的名称</p>
+            </div>
+          </div>
+        </div>
+
+        {/* 通用设置 */}
         <div>
-          <h1 className="text-2xl font-bold mb-1">设置</h1>
-          <p className="text-sm text-muted">配置应用偏好和行为</p>
-        </div>
-
-        <div className="bg-secondary rounded-2xl overflow-hidden divide-y divide-border shadow-lg">
-          <div className="setting-item">
-            <div>
-              <div className="text-sm font-medium mb-1">设备名称</div>
-              <div className="text-xs text-muted">在局域网中显示的名称</div>
-            </div>
-            {isEditingName ? (
-              <input
-                type="text"
-                value={tempName}
-                onChange={(e) => setTempName(e.target.value)}
-                onBlur={handleBlur}
-                onKeyDown={handleKeyDown}
-                className="input w-48"
-                autoFocus
-                placeholder="输入设备名称"
-              />
-            ) : (
-              <div
-                onClick={() => {
-                  setIsEditingName(true);
-                  setTempName(settings.deviceName);
-                }}
-                className="text-sm font-medium cursor-pointer hover:text-accent transition-colors px-3 py-2 rounded-lg hover:bg-tertiary"
+          <h3 className="text-xs font-medium text-muted mb-3 px-1">通用</h3>
+          <div className="bg-secondary rounded-2xl overflow-visible">
+            {/* 外观 */}
+            <div className="relative border-b border-divider">
+              <button
+                onClick={() => setShowThemeMenu(!showThemeMenu)}
+                className="w-full flex items-center justify-between px-4 py-4 hover:bg-hover first:rounded-t-2xl"
               >
-                {settings.deviceName}
-              </div>
-            )}
-          </div>
-
-          <div className="p-4 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium mb-1">通知提醒</div>
-              <div className="text-xs text-muted">接收文件时显示通知</div>
-            </div>
-            <button
-              onClick={() => {
-                if (notificationStatus === 'default') {
-                  handleRequestNotification();
-                } else if (notificationStatus === 'granted') {
-                  onSaveSettings({ showNotifications: !settings.showNotifications });
-                }
-              }}
-              disabled={notificationStatus === 'denied' || notificationStatus === 'unsupported'}
-              className={`toggle ${settings.showNotifications && notificationStatus === 'granted' ? 'on' : ''} ${notificationStatus === 'denied' || notificationStatus === 'unsupported' ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-            >
-              <div className="toggle-thumb"></div>
-            </button>
-          </div>
-
-          <div className="p-4 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium mb-1">主题</div>
-              <div className="text-xs text-muted">选择应用外观</div>
-            </div>
-            <div className="flex bg-tertiary border border-custom rounded-lg p-0.5 gap-0.5">
-              {(['system', 'dark', 'light'] as const).map(themeOption => (
-                <button
-                  key={themeOption}
-                  onClick={() => onSaveSettings({ theme: themeOption })}
-                  className={`flex items-center justify-center w-9 h-8 rounded-md transition-all ${settings.theme === themeOption
-                    ? 'bg-primary text-primary shadow-sm'
-                    : 'text-muted hover:text-secondary'
-                    }`}
-                >
-                  <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    {themeOption === 'system' && (
-                      <>
-                        <rect x="2" y="3" width="20" height="14" rx="2" />
-                        <path d="M8 21h8M12 17v4" />
-                      </>
-                    )}
-                    {themeOption === 'dark' && <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />}
-                    {themeOption === 'light' && (
-                      <>
-                        <circle cx="12" cy="12" r="5" />
-                        <path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-                      </>
-                    )}
+                <div className="flex items-center gap-3">
+                  <svg className="w-5 h-5 text-purple-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z" />
                   </svg>
-                </button>
-              ))}
+                  <span className="text-sm text-foreground">外观</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted">
+                  <span>
+                    {settings.theme === 'system' ? '跟随系统' : settings.theme === 'dark' ? '深色' : '浅色'}
+                  </span>
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </div>
+              </button>
+
+              {/* 主题选择菜单 */}
+              {showThemeMenu && (
+                <>
+                  {/* 遮罩层 */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowThemeMenu(false)}
+                  />
+                  {/* 菜单 */}
+                  <div className="absolute right-4 top-full mt-1 bg-tertiary border border-border rounded-xl shadow-2xl overflow-hidden z-50 min-w-[140px]">
+                    <button
+                      onClick={() => handleThemeChange('system')}
+                      className={`w-full px-4 py-3 text-left text-sm hover:bg-hover flex items-center justify-between ${settings.theme === 'system' ? 'text-accent' : 'text-foreground'}`}
+                    >
+                      <span>跟随系统</span>
+                      {settings.theme === 'system' && (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleThemeChange('dark')}
+                      className={`w-full px-4 py-3 text-left text-sm hover:bg-hover flex items-center justify-between ${settings.theme === 'dark' ? 'text-accent' : 'text-foreground'}`}
+                    >
+                      <span>深色</span>
+                      {settings.theme === 'dark' && (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleThemeChange('light')}
+                      className={`w-full px-4 py-3 text-left text-sm hover:bg-hover flex items-center justify-between ${settings.theme === 'light' ? 'text-accent' : 'text-foreground'}`}
+                    >
+                      <span>浅色</span>
+                      {settings.theme === 'light' && (
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 主题色 */}
+            <div className="relative border-t border-divider">
+              <button
+                onClick={() => setShowAccentMenu(!showAccentMenu)}
+                className="w-full flex items-center justify-between px-4 py-4 hover:bg-hover"
+              >
+                <div className="flex items-center gap-3">
+                  <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 2a10 10 0 0110 10" />
+                  </svg>
+                  <span className="text-sm text-foreground">主题色</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-5 h-5 rounded-full border-2 border-white/20"
+                    style={{ backgroundColor: currentAccentColor.color }}
+                  />
+                  <span className="text-sm text-muted">{currentAccentColor.name}</span>
+                  <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </div>
+              </button>
+
+              {/* 主题色选择菜单 */}
+              {showAccentMenu && (
+                <>
+                  {/* 遮罩层 */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowAccentMenu(false)}
+                  />
+                  {/* 菜单 */}
+                  <div className="absolute right-4 top-full mt-1 bg-tertiary border border-border rounded-xl shadow-2xl overflow-hidden z-50 min-w-[140px]">
+                    {accentColors.map((color) => (
+                      <button
+                        key={color.id}
+                        onClick={() => handleAccentColorChange(color.id)}
+                        className={`w-full px-4 py-3 text-left text-sm hover:bg-hover flex items-center justify-between ${settings.accentColor === color.id ? 'text-accent' : 'text-foreground'}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-4 h-4 rounded-full border-2 border-white/20"
+                            style={{ backgroundColor: color.color }}
+                          />
+                          <span>{color.name}</span>
+                        </div>
+                        {settings.accentColor === color.id && (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M20 6L9 17l-5-5" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 可被发现 */}
+            <div className="border-t border-divider">
+              <button
+                onClick={() => !isMobileDevice && onSaveSettings({ discoverable: !settings.discoverable })}
+                disabled={isMobileDevice}
+                className={`w-full flex items-center justify-between px-4 py-4 rounded-b-2xl ${isMobileDevice
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'hover:bg-hover'
+                  }`}
+              >
+                <div className="flex items-center gap-3">
+                  <svg className="w-5 h-5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                  <div className="text-left">
+                    <div className="text-sm text-foreground">可被发现</div>
+                    {isMobileDevice && (
+                      <div className="text-xs text-muted mt-0.5">移动设备无法被发现</div>
+                    )}
+                  </div>
+                </div>
+                <div className={`toggle ${settings.discoverable && !isMobileDevice ? 'on' : ''}`}>
+                  <div className="toggle-thumb"></div>
+                </div>
+              </button>
             </div>
           </div>
         </div>
 
-        <div className="bg-secondary rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="text-sm font-medium mb-1">连接信息</div>
-              <div className="text-xs text-muted">当前连接状态</div>
-            </div>
+        {/* 关于 */}
+        <div>
+          <h3 className="text-xs font-medium text-muted mb-3 px-1">关于</h3>
+          <div className="bg-secondary rounded-2xl overflow-hidden">
+            <Footer />
           </div>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted">服务器地址</span>
-              <span className="font-mono text-xs">{window.location.host}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted">连接状态</span>
-              <span className="text-success">已连接</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted">协议</span>
-              <span>WebSocket</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted">平台</span>
-              <span>{navigator.userAgent.includes('Mobile') ? '移动设备' : '桌面浏览器'}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="text-center text-xs text-muted pt-4">
-          <p>Airdrop - 简单快速的文件传输工具</p>
-          <p className="mt-1">© 2024 All rights reserved · Web Client v2.0.0</p>
         </div>
       </div>
     </div>

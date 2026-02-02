@@ -1,4 +1,4 @@
-type View = 'transfer' | 'settings';
+import type { View } from '../types';
 
 interface SidebarProps {
   view: View;
