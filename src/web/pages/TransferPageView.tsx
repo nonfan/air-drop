@@ -32,7 +32,8 @@ export function TransferPageView() {
     downloadProgressMap,
     onCopyText,
     onDownloadFile,
-    onShowTextModal
+    onShowTextModal,
+    isMobile
   } = useAppContext();
 
   return (
@@ -67,6 +68,7 @@ export function TransferPageView() {
       onCopyText={onCopyText}
       onDownloadFile={onDownloadFile}
       onShowTextModal={onShowTextModal}
+      isMobile={isMobile}
     />
   );
 }

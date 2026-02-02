@@ -1,4 +1,5 @@
 // 共享类型定义
+import type { HistoryItemType } from '../shared/components/HistoryItem';
 
 export interface Device {
   id: string;
@@ -21,18 +22,8 @@ export interface TransferProgress {
   sentSize?: number;
 }
 
-export interface HistoryItem {
-  id: string;
-  type: 'text' | 'file';
-  content?: string;
-  fileName?: string;
-  fileSize?: number;
-  filePath?: string;
-  timestamp: number;
-  status: 'success' | 'failed' | 'pending';
-  direction: 'sent' | 'received';
-  from?: string;
-}
+// 使用 shared 中的 HistoryItemType
+export type HistoryItem = HistoryItemType;
 
 export interface Settings {
   deviceName: string;
@@ -43,3 +34,4 @@ export interface Settings {
 }
 
 export type View = 'transfer' | 'settings' | 'history';
+

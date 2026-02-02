@@ -9,7 +9,7 @@ export default defineConfig({
     viteSingleFile()
   ],
   root: 'src/web',
-  base: './',
+  base: '/',
   resolve: {
     alias: {
       'react': path.resolve(__dirname, './node_modules/react'),

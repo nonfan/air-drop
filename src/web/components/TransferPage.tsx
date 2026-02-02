@@ -1,8 +1,8 @@
 import { FileDropZone } from './FileDropZone';
 import { TextInput } from './TextInput';
-import { DeviceList } from './DeviceList';
-import { HistoryList } from './HistoryList';
-import { HistoryItem } from './HistoryItem';
+import { DeviceList } from '../../shared/components/DeviceList';
+import { HistoryList } from '../../shared/components/HistoryList';
+import { HistoryItem } from '../../shared/components/HistoryItem';
 
 interface Device {
   id: string;
@@ -69,6 +69,7 @@ interface TransferPageProps {
   onCopyText: (text: string, id: string) => void;
   onDownloadFile: (filePath: string, fileName: string, itemId: string) => void;
   onShowTextModal?: () => void;
+  isMobile: boolean;
 }
 
 export function TransferPage({
@@ -101,7 +102,8 @@ export function TransferPage({
   downloadProgressMap,
   onCopyText,
   onDownloadFile,
-  onShowTextModal
+  onShowTextModal,
+  isMobile
 }: TransferPageProps) {
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
@@ -129,13 +131,19 @@ export function TransferPage({
     <div className="flex flex-col w-full h-full min-[1024px]:flex-row">
       {/* 主内容区 */}
       <div className="flex-1 min-w-0 px-6 py-4 md:p-6 md:pb-6 overflow-y-auto">
-        <div className="w-full max-w-full mx-auto space-y-6">
+        <div className="w-full max-w-full mx-auto space-y-6 pb-4 md:pb-0">{/* 移动端添加底部 padding */}
           {/* 发送快捷操作 - 仅移动端显示 */}
           <div className="md:hidden">
             <h2 className="text-sm font-medium mb-3">发送</h2>
             <div className="grid grid-cols-4 gap-3">
               <button
-                onClick={onSelectFiles}
+                onClick={() => {
+                  // 点击文件按钮时清除文本
+                  if (text.trim()) {
+                    onTextChange('');
+                  }
+                  onSelectFiles();
+                }}
                 className="flex flex-col items-center gap-2 transition-transform active:scale-95"
               >
                 <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center">
@@ -148,7 +156,13 @@ export function TransferPage({
               </button>
 
               <button
-                onClick={onSelectFiles}
+                onClick={() => {
+                  // 点击照片按钮时清除文本
+                  if (text.trim()) {
+                    onTextChange('');
+                  }
+                  onSelectFiles();
+                }}
                 className="flex flex-col items-center gap-2 transition-transform active:scale-95"
               >
                 <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center">
@@ -175,7 +189,13 @@ export function TransferPage({
               </button>
 
               <button
-                onClick={onSelectFiles}
+                onClick={() => {
+                  // 点击文件夹按钮时清除文本
+                  if (text.trim()) {
+                    onTextChange('');
+                  }
+                  onSelectFiles();
+                }}
                 className="flex flex-col items-center gap-2 transition-transform active:scale-95"
               >
                 <div className="w-16 h-16 rounded-full bg-purple-500/10 flex items-center justify-center">
@@ -274,7 +294,7 @@ export function TransferPage({
           <div>
             <h2 className="text-sm font-medium mb-3">
               选择设备
-              {(mode === 'file' ? selectedFiles.length > 0 : text.trim().length > 0) && devices.length > 0 && !isSending && (
+              {(selectedFiles.length > 0 || text.trim().length > 0) && devices.length > 0 && !isSending && (
                 <span className="text-xs text-muted font-normal ml-1">(点击设备即可发送)</span>
               )}
             </h2>
@@ -283,11 +303,17 @@ export function TransferPage({
               selectedDevice={selectedDevice}
               onSelectDevice={onSelectDevice}
               onSendToDevice={(deviceId) => {
+                console.log('[TransferPage] Device clicked:', {
+                  deviceId,
+                  selectedFilesCount: selectedFiles.length,
+                  textLength: text.trim().length,
+                  canSend: selectedFiles.length > 0 || text.trim().length > 0
+                });
                 // 先选中设备，然后直接发送到该设备
                 onSelectDevice(deviceId);
                 onSend(deviceId);
               }}
-              canSend={mode === 'file' ? selectedFiles.length > 0 : text.trim().length > 0}
+              canSend={selectedFiles.length > 0 || text.trim().length > 0}
             />
           </div>
 
@@ -353,6 +379,7 @@ export function TransferPage({
                       onCopyText={onCopyText}
                       onDownloadFile={onDownloadFile}
                       compact={true}
+                      isMobile={isMobile}
                     />
                   ))}
                 </div>
@@ -379,6 +406,7 @@ export function TransferPage({
           onClearAll={onClearHistory}
           onCopyText={onCopyText}
           onDownloadFile={onDownloadFile}
+          isMobile={isMobile}
         />
 
         {/* 下载进度条 - 固定在底部 */}

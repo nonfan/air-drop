@@ -17,7 +17,7 @@ interface MobileLayoutProps {
 
 /**
  * 移动端布局组件
- * 包含顶部标题栏和底部导航栏（在内容区域内）
+ * 包含顶部标题栏和悬浮的底部导航栏
  */
 export function MobileLayout({
   children,
@@ -45,18 +45,14 @@ export function MobileLayout({
         onClearHistory={onClearHistory}
       />
 
-      {/* 主内容区 - 包含内容和底部导航 */}
-      <div className="flex-1 overflow-hidden flex flex-col">
-        {/* 内容区域 */}
-        <div className="flex-1 overflow-hidden">
-          {children}
-        </div>
-
-        {/* 移动端底部导航 - 在内容区域内 */}
-        <div className="flex-shrink-0">
-          <BottomNavigation currentView={view} onViewChange={onViewChange} />
-        </div>
+      {/* 主内容区 - 相对定位容器 */}
+      {/* 滚动内容 - 添加底部 padding 为导航留出空间 */}
+      <div className="pb-20">
+        {children}
       </div>
+
+      {/* 移动端底部导航 - 绝对定位悬浮在内容区域底部 */}
+      <BottomNavigation currentView={view} onViewChange={onViewChange} />
     </div>
   );
 }

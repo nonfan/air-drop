@@ -15,6 +15,9 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
 
+// 别名，保持向后兼容
+export const formatSize = formatFileSize;
+
 /**
  * 格式化时间戳
  */
@@ -55,6 +58,9 @@ export function formatTimestamp(timestamp: number): string {
     minute: '2-digit'
   });
 }
+
+// 别名，保持向后兼容
+export const formatTime = formatTimestamp;
 
 /**
  * 格式化传输速度

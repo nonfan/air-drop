@@ -221,6 +221,9 @@ export class WebFileServer extends EventEmitter {
       this.serveTemplateFile(url.replace('/scripts/', ''), 'application/javascript', res);
     } else if (url === '/icon.png' || url === '/manifest.json' || url.startsWith('/assets/') || /\.(png|jpg|jpeg|svg|ico|json)$/.test(url)) {
       this.serveStaticFile(url, res);
+    } else if (url === '/api/info/probe') {
+      // UDP 探测接口
+      this.handleProbeRequest(res);
     } else if (url.startsWith('/api/info/')) {
       const clientId = url.replace('/api/info/', '');
       this.handleApiInfo(clientId, res);
@@ -312,6 +315,20 @@ export class WebFileServer extends EventEmitter {
     const files = this.getFilesForClient(clientId);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ deviceName: this.deviceName, files }));
+  }
+
+  private handleProbeRequest(res: http.ServerResponse) {
+    // 响应探测请求，返回服务器信息
+    res.writeHead(200, { 
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(JSON.stringify({ 
+      id: 'host',
+      deviceName: this.deviceName,
+      port: this.port,
+      timestamp: Date.now()
+    }));
   }
 
   private handleUpload(req: http.IncomingMessage, res: http.ServerResponse) {

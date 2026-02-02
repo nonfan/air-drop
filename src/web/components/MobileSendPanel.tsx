@@ -1,4 +1,4 @@
-import { DeviceList } from './DeviceList';
+import { DeviceList } from '../../shared/components/DeviceList';
 
 interface Device {
   id: string;

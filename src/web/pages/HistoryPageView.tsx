@@ -12,13 +12,15 @@ export function HistoryPageView() {
     downloadedIds,
     downloadFailedIds,
     downloadProgressMap,
+    downloadProgressState,
     onCopyText,
-    onDownloadFile
+    onDownloadFile,
+    isMobile
   } = useAppContext();
 
   return (
     <div className="h-full overflow-y-auto px-6 py-4">
-      <div className="w-full max-w-full mx-auto">
+      <div className="w-full max-w-full mx-auto pb-4 md:pb-0">{/* 移动端添加底部 padding */}
         <HistoryView
           history={history}
           copiedId={copiedId}
@@ -29,8 +31,10 @@ export function HistoryPageView() {
           downloadedIds={downloadedIds}
           downloadFailedIds={downloadFailedIds}
           downloadProgressMap={downloadProgressMap}
+          downloadProgress={downloadProgressState}
           onCopyText={onCopyText}
           onDownloadFile={onDownloadFile}
+          isMobile={isMobile}
         />
       </div>
     </div>

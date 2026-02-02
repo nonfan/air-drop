@@ -13,50 +13,47 @@ export function BottomNavigation({ currentView, onViewChange }: BottomNavigation
   ];
 
   return (
-    <div className="fixed bottom-6 left-0 w-full z-[999] md:hidden pointer-events-none px-4">
-      <div className="flex justify-center items-center">
-        <nav className="
-          relative flex items-center gap-1 p-1.5
-          bg-secondary backdrop-blur-3xl 
-          rounded-full border border-border
-          shadow-lg
-          pointer-events-auto
-        ">
-          {tabs.map((tab) => {
-            const isActive = currentView === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => onViewChange(tab.id as any)}
-                className="
-                  relative flex flex-col items-center justify-center
-                  w-[72px] h-[44px] rounded-full
-                  transition-all duration-200
-                "
+    <div className="fixed bottom-0 w-full py-4 px-4 md:hidden flex justify-center">
+      <nav className="
+        relative flex items-center gap-1 p-1.5
+        bg-secondary/95 backdrop-blur-xl 
+        rounded-full border border-border
+      ">
+        {tabs.map((tab) => {
+          const isActive = currentView === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onViewChange(tab.id as View)}
+              className="
+                relative flex flex-col items-center justify-center
+                w-[72px] h-[44px] rounded-full
+                transition-all duration-200
+                active:scale-95
+              "
+              style={{
+                color: isActive ? 'var(--accent)' : 'var(--muted)',
+                backgroundColor: isActive ? 'var(--accent-bg)' : 'transparent'
+              }}
+            >
+              <svg
+                className="w-6 h-6 transition-transform duration-200"
                 style={{
-                  color: isActive ? 'var(--accent)' : 'var(--muted)',
-                  backgroundColor: isActive ? 'var(--accent-bg)' : 'transparent'
+                  transform: isActive ? 'scale(1.1)' : 'scale(1)'
                 }}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                <svg
-                  className="w-6 h-6 transition-transform duration-200"
-                  style={{
-                    transform: isActive ? 'scale(1.1)' : 'scale(1)'
-                  }}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  {tab.icon}
-                </svg>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+                {tab.icon}
+              </svg>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

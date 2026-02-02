@@ -23,6 +23,7 @@ import type {
   SharedFile,
   ReceivedText
 } from './types';
+import type { HistoryItemType } from '../../shared/components/HistoryItem';
 
 type View = 'transfer' | 'settings';
 
@@ -54,6 +55,15 @@ function App() {
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error'>('idle');
   const [updateInfo, setUpdateInfo] = useState<{ version?: string; percent?: number; error?: string }>({});
 
+  // 为 shared 组件添加的状态
+  const [copyFailedId, setCopyFailedId] = useState<string | null>(null);
+  const [copiedTextIds, setCopiedTextIds] = useState<Set<string>>(new Set());
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadFailedId, setDownloadFailedId] = useState<string | null>(null);
+  const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
+  const [downloadFailedIds, setDownloadFailedIds] = useState<Set<string>>(new Set());
+  const [downloadProgressMap] = useState<Map<string, { percent: number; receivedSize: number; totalSize: number }>>(new Map());
+
   useTheme(settings?.theme);
   const { showScrollTop, scrollToTop } = useScroll('#historyContent');
 
@@ -61,6 +71,30 @@ function App() {
     setSelectedFiles(prev => [...prev, ...files]);
     setSendMode('file');
   });
+
+  // 转换历史记录为 shared 组件格式
+  const convertedHistory: HistoryItemType[] = [
+    ...receivedTexts.map(text => ({
+      id: text.id,
+      type: 'text' as const,
+      content: text.text,
+      timestamp: text.timestamp,
+      status: 'success' as const,
+      direction: 'received' as const,
+      from: text.from
+    })),
+    ...transferHistory.map(file => ({
+      id: file.id,
+      type: 'file' as const,
+      fileName: file.fileName,
+      fileSize: file.size,
+      filePath: file.filePath,
+      timestamp: file.timestamp,
+      status: 'success' as const,
+      direction: file.type === 'received' ? 'received' as const : 'sent' as const,
+      from: file.from
+    }))
+  ].sort((a, b) => b.timestamp - a.timestamp);
 
   useEffect(() => {
     // 添加错误处理，避免在主进程未就绪时报错
@@ -87,7 +121,14 @@ function App() {
         if (settingsData.status === 'fulfilled') setSettings(settingsData.value);
         if (webURLData.status === 'fulfilled') setWebURL(webURLData.value);
         if (versionData.status === 'fulfilled') setAppVersion(versionData.value);
-        if (historyData.status === 'fulfilled') setTransferHistory(historyData.value);
+        if (historyData.status === 'fulfilled') {
+          setTransferHistory(historyData.value);
+          // 桌面端：自动将所有已接收的文件标记为"已下载"
+          const receivedFileIds = historyData.value
+            .filter((file: TransferRecord) => file.type === 'received')
+            .map((file: TransferRecord) => file.id);
+          setDownloadedIds(new Set(receivedFileIds));
+        }
         if (textHistoryData.status === 'fulfilled') setReceivedTexts(textHistoryData.value);
         if (devicesData.status === 'fulfilled') {
           setDevices(prev => [...prev.filter(d => d.type === 'mobile'), ...devicesData.value.map(d => ({ ...d, type: 'pc' as const }))]);
@@ -102,7 +143,14 @@ function App() {
 
     initializeApp();
 
-    window.windrop.onTransferHistoryUpdated(setTransferHistory);
+    window.windrop.onTransferHistoryUpdated((history: TransferRecord[]) => {
+      setTransferHistory(history);
+      // 桌面端：自动将所有已接收的文件标记为"已下载"
+      const receivedFileIds = history
+        .filter(file => file.type === 'received')
+        .map(file => file.id);
+      setDownloadedIds(new Set(receivedFileIds));
+    });
     window.windrop.onTextHistoryUpdated(setReceivedTexts);
     window.windrop.onDeviceFound((d) => {
       setDevices(prev => {
@@ -352,23 +400,28 @@ function App() {
                   devices={devices}
                   selectedDevice={selectedDevice}
                   onSelectDevice={(id) => setSelectedDevice(selectedDevice === id ? null : id)}
-                  sendMode={sendMode}
-                  selectedFiles={selectedFiles}
-                  textInput={textInput}
-                  isSending={isSending}
-                  onSend={handleSend}
-                  onSendText={handleSendText}
-                  onShowQR={() => setShowQR(true)}
+                  onSendToDevice={(deviceId) => {
+                    if (sendMode === 'file') {
+                      handleSend(deviceId);
+                    } else {
+                      handleSendText(deviceId);
+                    }
+                  }}
+                  canSend={sendMode === 'file' ? selectedFiles.length > 0 : textInput.trim().length > 0}
                 />
               </div>
 
               <HistoryList
-                transferHistory={transferHistory}
-                receivedTexts={receivedTexts}
+                history={convertedHistory}
                 showAllHistory={showAllHistory}
                 copiedId={copiedId}
-                openedId={openedId}
-                missingFiles={missingFiles}
+                copyFailedId={copyFailedId}
+                copiedTextIds={copiedTextIds}
+                downloadingId={downloadingId}
+                downloadFailedId={downloadFailedId}
+                downloadedIds={downloadedIds}
+                downloadFailedIds={downloadFailedIds}
+                downloadProgressMap={downloadProgressMap}
                 onToggleShowAll={() => setShowAllHistory(!showAllHistory)}
                 onClearAll={async () => {
                   await window.windrop.clearTransferHistory();
@@ -383,40 +436,53 @@ function App() {
                     const success = await window.windrop.copyText(text);
                     if (success) {
                       setCopiedId(id);
+                      setCopiedTextIds(prev => new Set(prev).add(id));
                       setTimeout(() => setCopiedId(null), 1500);
                     } else {
+                      setCopyFailedId(id);
+                      setTimeout(() => setCopyFailedId(null), 2000);
                       setToast('复制失败');
                       setTimeout(() => setToast(null), 2000);
                     }
                   } catch {
+                    setCopyFailedId(id);
+                    setTimeout(() => setCopyFailedId(null), 2000);
                     setToast('复制失败');
                     setTimeout(() => setToast(null), 2000);
                   }
                 }}
-                onOpenFile={async (filePath, id) => {
+                onDownloadFile={async (filePath, fileName, itemId) => {
                   try {
+                    setDownloadingId(itemId);
                     const success = await window.windrop.showFileInFolder(filePath);
+                    setDownloadingId(null);
                     if (success) {
-                      setOpenedId(id);
+                      setDownloadedIds(prev => new Set(prev).add(itemId));
+                      setOpenedId(itemId);
                       setTimeout(() => setOpenedId(null), 1500);
                       setMissingFiles(prev => {
                         const next = new Set(prev);
-                        next.delete(id);
+                        next.delete(itemId);
                         return next;
                       });
                     } else {
-                      setMissingFiles(prev => new Set(prev).add(id));
+                      setDownloadFailedIds(prev => new Set(prev).add(itemId));
+                      setDownloadFailedId(itemId);
+                      setTimeout(() => setDownloadFailedId(null), 2000);
+                      setMissingFiles(prev => new Set(prev).add(itemId));
                       setToast('文件已被删除或移动');
                       setTimeout(() => setToast(null), 2000);
                     }
                   } catch {
-                    setMissingFiles(prev => new Set(prev).add(id));
+                    setDownloadingId(null);
+                    setDownloadFailedIds(prev => new Set(prev).add(itemId));
+                    setDownloadFailedId(itemId);
+                    setTimeout(() => setDownloadFailedId(null), 2000);
+                    setMissingFiles(prev => new Set(prev).add(itemId));
                     setToast('文件已被删除或移动');
                     setTimeout(() => setToast(null), 2000);
                   }
                 }}
-                formatSize={formatSize}
-                formatTime={formatTime}
               />
             </div>
           )}

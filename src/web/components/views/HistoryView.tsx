@@ -1,9 +1,8 @@
 import { EmptyState } from '../common/EmptyState';
-import { HistoryItem as HistoryItemComponent } from '../HistoryItem';
-import type { HistoryItem } from '../../types';
+import { HistoryItem as HistoryItemComponent, type HistoryItemType } from '../../../shared/components/HistoryItem';
 
 interface HistoryViewProps {
-  history: HistoryItem[];
+  history: HistoryItemType[];
   copiedId: string | null;
   copyFailedId: string | null;
   copiedTextIds: Set<string>;
@@ -12,8 +11,10 @@ interface HistoryViewProps {
   downloadedIds: Set<string>;
   downloadFailedIds: Set<string>;
   downloadProgressMap: Map<string, { percent: number; receivedSize: number; totalSize: number }>;
+  downloadProgress?: { [key: string]: number };
   onCopyText: (text: string, id: string) => void;
   onDownloadFile: (filePath: string, fileName: string, itemId: string) => void;
+  isMobile?: boolean;
 }
 
 /**
@@ -30,8 +31,10 @@ export function HistoryView({
   downloadedIds,
   downloadFailedIds,
   downloadProgressMap,
+  downloadProgress,
   onCopyText,
-  onDownloadFile
+  onDownloadFile,
+  isMobile = false
 }: HistoryViewProps) {
   if (history.length === 0) {
     return (
@@ -60,9 +63,11 @@ export function HistoryView({
           downloadedIds={downloadedIds}
           downloadFailedIds={downloadFailedIds}
           downloadProgressMap={downloadProgressMap}
+          downloadProgress={downloadProgress}
           onCopyText={onCopyText}
           onDownloadFile={onDownloadFile}
           compact={false}
+          isMobile={isMobile}
         />
       ))}
     </div>

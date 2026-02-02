@@ -22,6 +22,7 @@ export interface AppContextType {
   downloadedIds: Set<string>;
   downloadFailedIds: Set<string>;
   downloadProgressMap: Map<string, { percent: number; receivedSize: number; totalSize: number }>;
+  downloadProgressState?: { [key: string]: number }; // 新增：下载进度状态
   showAllHistory: boolean;
   appVersion: string;
   isMobile: boolean;
