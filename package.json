@@ -79,8 +79,7 @@
         "portable"
       ],
       "icon": "public/icon.ico",
-      "requestedExecutionLevel": "requireAdministrator",
-      "manifest": "build/app.manifest"
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "nsis": {
       "oneClick": false,
