@@ -99,8 +99,8 @@ npm run dist
 
 ### 1. 版本标记
 ```bash
-git tag v1.6.0
-git push origin v1.6.0
+git tag v1.7.0
+git push origin v1.7.0
 ```
 
 ### 2. 构建发布包
@@ -129,7 +129,7 @@ npm run dist
 ## 📝 Release Notes 模板
 
 ```markdown
-# Airdrop v1.6.0
+# Airdrop v1.7.0
 
 ## 🎉 新功能
 
