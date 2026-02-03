@@ -151,6 +151,11 @@ export function useSocket(options: UseSocketOptions) {
     // 文件接收
     socketInstance.on('file-received', (data: { fileName: string; fileSize: number; filePath: string; from: string }) => {
       console.log('[Socket.IO] Received file-received message:', data);
+      
+      // 显示接收通知
+      callbacksRef.current.onNotification('收到文件', `${data.fileName} 来自 ${data.from}`);
+      
+      // 添加到历史记录
       const item: HistoryItem = {
         id: Date.now().toString(),
         type: 'file',
@@ -163,7 +168,6 @@ export function useSocket(options: UseSocketOptions) {
         from: data.from
       };
       callbacksRef.current.onHistoryItemReceived(item);
-      callbacksRef.current.onNotification('收到文件', `${data.fileName} 来自 ${data.from}`);
     });
 
     // 进度更新
@@ -188,6 +192,17 @@ export function useSocket(options: UseSocketOptions) {
     // 上传完成/错误
     socketInstance.on('upload-complete', () => callbacksRef.current.onSendComplete());
     socketInstance.on('upload-error', () => callbacksRef.current.onSendError());
+
+    // 桌面端发送文件进度（显示为移动端的接收进度）
+    socketInstance.on('desktop-send-progress', (data: { fileName: string; percent: number; sentSize: number; totalSize: number }) => {
+      console.log(`[Mobile] Desktop send progress: ${data.fileName} ${data.percent}%`);
+      callbacksRef.current.onDownloadProgressUpdate({
+        percent: data.percent,
+        currentFile: data.fileName,
+        totalSize: data.totalSize,
+        sentSize: data.sentSize
+      });
+    });
 
     // 错误和断开连接
     socketInstance.on('error', (error: any) => {

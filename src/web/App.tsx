@@ -70,6 +70,17 @@ function AppContent() {
   const { settings, saveSettings } = useSettings();
   const { history, addHistoryItem, clearHistory } = useHistory();
 
+  // 处理历史记录接收（不再显示弹窗提示）
+  const handleHistoryItemReceived = useCallback((item: HistoryItem) => {
+    addHistoryItem(item);
+
+    // 移动端接收文件时，自动切换到历史记录页面
+    if (isMobile && item.type === 'file' && item.direction === 'received') {
+      // 可选：自动切换到历史记录页面
+      // navigate('/history');
+    }
+  }, [addHistoryItem, isMobile]);
+
   // UDP 发现（仅在移动端且未连接时启用）
   const { servers: discoveredServers, isDiscovering, manualDiscover } = useUDPDiscovery(isMobile && devices.length === 0);
 
@@ -129,7 +140,7 @@ function AppContent() {
   const { socket } = useSocket({
     deviceName: settings.deviceName,
     onDevicesUpdate: handleDevicesUpdate,
-    onHistoryItemReceived: addHistoryItem,
+    onHistoryItemReceived: handleHistoryItemReceived,
     onNotification: showNotification,
     onAppVersionReceived: handleAppVersionReceived,
     onSendProgressUpdate: handleSendProgressUpdate,
@@ -154,7 +165,10 @@ function AppContent() {
   } = useFileTransfer({
     socket,
     selectedDevice,
-    onSaveLastDevice: saveLastDevice
+    onSaveLastDevice: saveLastDevice,
+    onProgressUpdate: handleSendProgressUpdate,
+    onComplete: handleSendComplete,
+    onError: handleSendError
   });
 
   // 文件下载

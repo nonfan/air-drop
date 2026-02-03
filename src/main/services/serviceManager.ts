@@ -348,6 +348,16 @@ function setupWebServerEvents(
     }
   });
 
+  // 移动端下载进度同步
+  webServer.on('mobile-download-progress', (progress) => {
+    mainWindow?.webContents.send('mobile-download-progress', progress);
+  });
+
+  // 移动端上传进度同步
+  webServer.on('mobile-upload-progress', (progress) => {
+    mainWindow?.webContents.send('mobile-upload-progress', progress);
+  });
+
   webServer.on('client-connected', (client) => {
     mainWindow?.webContents.send('mobile-connected', client);
   });

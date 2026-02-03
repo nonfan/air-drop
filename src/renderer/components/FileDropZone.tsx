@@ -9,6 +9,8 @@ interface FileDropZoneProps {
   sendProgress: TransferProgress | null;
   receiveProgress: TransferProgress | null;
   devices: Device[];
+  downloadProgressMap: Map<string, { percent: number; receivedSize: number; totalSize: number }>;
+  transferHistory: any[]; // 历史记录，用于匹配文件名
   onSelectFiles: () => void;
   onRemoveFile: (index: number) => void;
   onClearFiles: () => void;
@@ -25,15 +27,40 @@ export function FileDropZone({
   sendProgress,
   receiveProgress,
   devices,
+  downloadProgressMap,
+  transferHistory,
   onSelectFiles,
   onRemoveFile,
   onClearFiles,
   onRemoveSharedFile,
   formatSize
 }: FileDropZoneProps) {
+  // 检查是否有移动端正在下载的文件
+  // 通过文件名匹配 sharedFiles 和 downloadProgressMap
+  const mobileDownloadProgress = sharedFiles
+    .map(file => {
+      // 在历史记录中查找匹配的文件名
+      const matchingRecord = transferHistory.find(record =>
+        record.fileName === file.name && record.type === 'sent'
+      );
+
+      if (matchingRecord) {
+        const progress = downloadProgressMap.get(matchingRecord.id);
+        if (progress && progress.percent > 0 && progress.percent < 100) {
+          return {
+            fileId: file.id,
+            fileName: file.name,
+            targetId: file.targetId,
+            ...progress
+          };
+        }
+      }
+      return null;
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null);
   return (
     <div className="space-y-4">
-      {/* 传输进度 */}
+      {/* 桌面端传输进度（发送/接收） */}
       {(isSending || isDownloading) && (sendProgress || receiveProgress) && (
         <div className="bg-secondary rounded-2xl p-4">
           <div className="flex items-center justify-between mb-2">
@@ -50,6 +77,28 @@ export function FileDropZone({
           </div>
         </div>
       )}
+
+      {/* 移动端下载进度 */}
+      {mobileDownloadProgress.length > 0 && mobileDownloadProgress.map((progress) => {
+        const device = devices.find(d => d.id === progress.targetId);
+
+        return (
+          <div key={progress.fileId} className="bg-secondary rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">
+                {device?.name || '移动端'} 下载中: {progress.fileName}
+              </span>
+              <span className="text-sm text-muted">{progress.percent}%</span>
+            </div>
+            <div className="h-2 bg-tertiary rounded-full overflow-hidden">
+              <div
+                className="h-full bg-success transition-all duration-300"
+                style={{ width: `${progress.percent}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
 
       {/* 文件拖放区 / 已选文件列表 */}
       {selectedFiles.length === 0 && sharedFiles.length === 0 ? (

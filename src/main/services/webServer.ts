@@ -841,6 +841,28 @@ export class WebFileServer extends EventEmitter {
       });
     });
 
+    // 下载进度同步（移动端 -> 桌面端）
+    socket.on('download-progress-sync', (data: { itemId: string; fileName: string; percent: number; receivedSize: number; totalSize: number }) => {
+      console.log(`[WebServer] Mobile download progress: ${data.fileName} ${data.percent}%`);
+      // 转发给桌面端（通过主进程事件）
+      this.emit('mobile-download-progress', {
+        clientId,
+        clientName,
+        ...data
+      });
+    });
+
+    // 上传进度同步（移动端 -> 桌面端）
+    socket.on('upload-progress-sync', (data: { fileName: string; percent: number; sentSize: number; totalSize: number }) => {
+      console.log(`[WebServer] Mobile upload progress: ${data.fileName} ${data.percent}%`);
+      // 转发给桌面端（通过主进程事件）
+      this.emit('mobile-upload-progress', {
+        clientId,
+        clientName,
+        ...data
+      });
+    });
+
     // 文件传输（使用 Socket.IO 的二进制支持）
     let currentFileName = '';
     let currentFileSize = 0;

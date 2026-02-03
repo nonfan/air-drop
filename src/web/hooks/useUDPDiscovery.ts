@@ -11,7 +11,10 @@ export function useUDPDiscovery(enabled: boolean = true) {
   const [discovery] = useState(() => new UDPDiscovery());
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      setIsDiscovering(false);
+      return;
+    }
 
     console.log('[useUDPDiscovery] 启动 UDP 发现');
     setIsDiscovering(true);
@@ -26,6 +29,9 @@ export function useUDPDiscovery(enabled: boolean = true) {
           }
           return [...prev, server];
         });
+        
+        // 找到服务器后，保持扫描状态但不再显示加载动画
+        setTimeout(() => setIsDiscovering(false), 1000);
       },
       onServerLost: (serverId) => {
         console.log('[useUDPDiscovery] 服务器离线:', serverId);
@@ -41,12 +47,14 @@ export function useUDPDiscovery(enabled: boolean = true) {
   }, [enabled, discovery]);
 
   const manualDiscover = useCallback(async () => {
+    console.log('[useUDPDiscovery] 手动触发扫描');
     setIsDiscovering(true);
     try {
       const foundServers = await discovery.discover();
       setServers(foundServers);
     } finally {
-      setIsDiscovering(false);
+      // 延迟关闭加载状态，让用户看到反馈
+      setTimeout(() => setIsDiscovering(false), 1000);
     }
   }, [discovery]);
 

@@ -113,6 +113,12 @@ contextBridge.exposeInMainWorld('windrop', {
   onWebDownloadFailed: (callback: (info: { fileName: string; filePath: string; clientName: string }) => void) => {
     ipcRenderer.on('web-download-failed', (_e, info) => callback(info));
   },
+  onMobileDownloadProgress: (callback: (progress: { clientId: string; clientName: string; itemId: string; fileName: string; percent: number; receivedSize: number; totalSize: number }) => void) => {
+    ipcRenderer.on('mobile-download-progress', (_e, progress) => callback(progress));
+  },
+  onMobileUploadProgress: (callback: (progress: { clientId: string; clientName: string; fileName: string; percent: number; sentSize: number; totalSize: number }) => void) => {
+    ipcRenderer.on('mobile-upload-progress', (_e, progress) => callback(progress));
+  },
 
   // Transfer history
   getTransferHistory: () => ipcRenderer.invoke('get-transfer-history'),

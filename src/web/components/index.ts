@@ -28,6 +28,7 @@ export { TextModal } from './common/TextModal';
 export { Toast } from './common/Toast';
 export { EmptyState } from './common/EmptyState';
 export { Footer } from './common/Footer';
+export { FileReceivedToast } from './common/FileReceivedToast';
 
 // 视图组件
 export { HistoryView } from './views/HistoryView';

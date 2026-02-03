@@ -10,10 +10,13 @@ interface UseFileTransferOptions {
   socket: Socket | null;
   selectedDevice: string | null;
   onSaveLastDevice: (deviceId: string) => void;
+  onProgressUpdate?: (progress: { percent: number; currentFile: string; totalSize: number; sentSize: number }) => void;
+  onComplete?: () => void;
+  onError?: () => void;
 }
 
 export function useFileTransfer(options: UseFileTransferOptions) {
-  const { socket, selectedDevice, onSaveLastDevice } = options;
+  const { socket, selectedDevice, onSaveLastDevice, onProgressUpdate, onComplete, onError } = options;
 
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([]);
   const [isSending, setIsSending] = useState(false);
@@ -23,17 +26,35 @@ export function useFileTransfer(options: UseFileTransferOptions) {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.onchange = (e) => {
+    
+    // 检测是否为移动设备
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    // 移动端优化：不添加 capture 属性，让用户可以选择相册或拍照
+    // 这样可以避免 iOS 立即加载大视频的问题
+    if (!isMobile) {
+      input.accept = '*/*';
+    }
+    
+    input.onchange = async (e) => {
       const target = e.target as HTMLInputElement;
       if (target.files) {
-        const newFiles = Array.from(target.files).map(file => ({
-          name: file.name,
-          size: file.size,
-          file
-        }));
+        // 立即获取文件元数据（不读取内容）
+        // File 对象是轻量引用，只包含元数据（name, size, type, lastModified）
+        // 实际文件内容只在读取时（如 FormData.append）才会加载
+        const newFiles = Array.from(target.files).map(file => {
+          console.log(`[FileSelect] File metadata: ${file.name}, ${file.size} bytes, ${file.type}`);
+          return {
+            name: file.name,
+            size: file.size,
+            file // 保存 File 引用，不读取内容
+          };
+        });
+        
         setSelectedFiles(prev => [...prev, ...newFiles]);
       }
     };
+    
     input.click();
   }, []);
 
@@ -53,45 +74,144 @@ export function useFileTransfer(options: UseFileTransferOptions) {
   // 发送文件
   const sendFiles = useCallback(async (targetDeviceId?: string) => {
     const deviceId = targetDeviceId || selectedDevice;
-    if (!socket || !deviceId || selectedFiles.length === 0) return;
-
-    if (!socket.connected) {
-      console.error('Socket.IO not connected');
+    if (!socket || !deviceId || selectedFiles.length === 0) {
+      console.error('[SendFiles] Missing requirements:', {
+        hasSocket: !!socket,
+        hasDevice: !!deviceId,
+        filesCount: selectedFiles.length
+      });
       return;
     }
+
+    if (!socket.connected) {
+      console.error('[SendFiles] Socket.IO not connected');
+      return;
+    }
+
+    console.log('[SendFiles] Starting upload:', {
+      deviceId,
+      filesCount: selectedFiles.length,
+      files: selectedFiles.map(f => ({ name: f.name, size: f.size, type: f.file.type }))
+    });
 
     setIsSending(true);
 
     try {
-      for (const fileItem of selectedFiles) {
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const fileItem = selectedFiles[i];
+        console.log(`[SendFiles] Uploading file ${i + 1}/${selectedFiles.length}:`, fileItem.name);
+        
         const formData = new FormData();
-        formData.append('file', fileItem.file);
+        formData.append('file', fileItem.file, fileItem.name); // 明确指定文件名
         formData.append('targetId', deviceId);
         formData.append('fileName', fileItem.name);
 
         const uploadUrl = `${window.location.origin}/api/upload`;
-        console.log('Uploading to:', uploadUrl, 'targetId:', deviceId);
+        console.log('[SendFiles] Upload URL:', uploadUrl);
 
-        const response = await fetch(uploadUrl, {
-          method: 'POST',
-          body: formData
+        // 使用 XMLHttpRequest 以支持上传进度监控
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          
+          // 添加超时设置（iOS 可能需要）
+          xhr.timeout = 300000; // 5分钟超时
+          
+          xhr.addEventListener('timeout', () => {
+            console.error('[SendFiles] Upload timeout');
+            reject(new Error('Upload timeout'));
+          });
+          
+          // 监听上传进度
+          xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+              const percent = Math.round((e.loaded / e.total) * 100);
+              console.log(`[Upload] Progress: ${fileItem.name} ${percent}% (${e.loaded}/${e.total})`);
+              
+              // 更新本地进度（显示在移动端 UI）
+              if (onProgressUpdate) {
+                onProgressUpdate({
+                  percent,
+                  currentFile: fileItem.name,
+                  totalSize: e.total,
+                  sentSize: e.loaded
+                });
+              }
+              
+              // 同步进度给桌面端（通过 Socket.IO）
+              if (socket && socket.connected) {
+                socket.emit('upload-progress-sync', {
+                  fileName: fileItem.name,
+                  percent,
+                  sentSize: e.loaded,
+                  totalSize: e.total
+                });
+              }
+            }
+          });
+          
+          xhr.addEventListener('load', () => {
+            console.log('[SendFiles] Upload complete, status:', xhr.status);
+            
+            if (xhr.status >= 200 && xhr.status < 300) {
+              // 上传成功，显示 100% 进度
+              if (onProgressUpdate) {
+                onProgressUpdate({
+                  percent: 100,
+                  currentFile: fileItem.name,
+                  totalSize: fileItem.size,
+                  sentSize: fileItem.size
+                });
+              }
+              
+              // 延迟 500ms 让用户看到 100% 完成状态
+              setTimeout(() => {
+                resolve();
+              }, 500);
+            } else {
+              console.error('[SendFiles] Upload failed:', xhr.status, xhr.responseText);
+              reject(new Error(`Upload failed: ${xhr.status}`));
+            }
+          });
+          
+          xhr.addEventListener('error', (e) => {
+            console.error('[SendFiles] Upload error:', e);
+            reject(new Error('Upload error'));
+          });
+          
+          xhr.addEventListener('abort', () => {
+            console.error('[SendFiles] Upload aborted');
+            reject(new Error('Upload aborted'));
+          });
+          
+          xhr.open('POST', uploadUrl);
+          
+          // iOS Safari 可能需要这些头部
+          // 注意：不要手动设置 Content-Type，让浏览器自动设置（包含 boundary）
+          
+          console.log('[SendFiles] Sending FormData...');
+          xhr.send(formData);
         });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Upload failed:', response.status, errorText);
-          throw new Error('Upload failed');
-        }
       }
 
+      console.log('[SendFiles] All files uploaded successfully');
       onSaveLastDevice(deviceId);
       setSelectedFiles([]);
       setIsSending(false);
+      
+      // 通知完成
+      if (onComplete) {
+        onComplete();
+      }
     } catch (error) {
-      console.error('Send error:', error);
+      console.error('[SendFiles] Send error:', error);
       setIsSending(false);
+      
+      // 通知错误
+      if (onError) {
+        onError();
+      }
     }
-  }, [socket, selectedDevice, selectedFiles, onSaveLastDevice]);
+  }, [socket, selectedDevice, selectedFiles, onSaveLastDevice, onProgressUpdate, onComplete, onError]);
 
   return {
     selectedFiles,

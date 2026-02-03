@@ -53,4 +53,5 @@ export const STORAGE_KEYS = {
   DOWNLOADED_IDS: 'windrop-downloaded-ids',
   DOWNLOAD_FAILED_IDS: 'windrop-download-failed-ids',
   LAST_SERVER_URL: 'windrop-last-server-url',
+  MANUAL_SERVER_IP: 'windrop-manual-server-ip', // 手动配置的服务器 IP
 } as const;

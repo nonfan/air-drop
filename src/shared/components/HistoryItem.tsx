@@ -224,8 +224,15 @@ export function HistoryItem({
               null
             )
           ) : (
-            // 文件消息：下载失败标签
-            isDownloadFailed && <BadgeError text="文件不存在" />
+            // 文件消息：下载状态标签
+            <>
+              {isDownloading && (
+                <div className="px-2 py-1 bg-accent/10 text-accent text-xs font-medium rounded">
+                  下载中
+                </div>
+              )}
+              {isDownloadFailed && <BadgeError text="文件不存在" />}
+            </>
           )}
         </div>
 

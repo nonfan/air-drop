@@ -193,6 +193,16 @@ function App() {
       setReceiveProgress(progress);
       setIsDownloading(true);
     });
+    window.windrop.onWebUploadProgress((progress) => {
+      // 移动端上传到桌面端的进度
+      setReceiveProgress({
+        percent: progress.percent,
+        currentFile: progress.name,
+        totalSize: 0,
+        sentSize: 0
+      });
+      setIsDownloading(true);
+    });
     window.windrop.onSendComplete((r) => {
       setIsSending(false);
       setSendProgress(null);
@@ -227,11 +237,51 @@ function App() {
       setReceiveProgress(null);
       setIsDownloading(false);
     });
+    window.windrop.onWebUploadComplete(() => {
+      // 移动端上传完成
+      setReceiveProgress(null);
+      setIsDownloading(false);
+    });
     window.windrop.onFileDownloaded((i) => setSharedFiles(prev => prev.filter(f => f.id !== i.id)));
     window.windrop.onWebDownloadFailed((info) => {
       // 网页端下载失败，显示通知
       setToast(`${info.clientName} 下载 ${info.fileName} 失败`);
       setTimeout(() => setToast(null), 3000);
+    });
+    window.windrop.onMobileDownloadProgress((progress) => {
+      // 移动端下载进度
+      console.log(`[Desktop] Mobile download progress: ${progress.fileName} ${progress.percent}%`);
+
+      // 通过文件名查找对应的历史记录
+      const matchingRecord = transferHistory.find(record =>
+        record.fileName === progress.fileName &&
+        record.type === 'sent' // 只匹配发送的文件
+      );
+
+      if (matchingRecord) {
+        // 更新下载进度 Map（使用历史记录的 ID）
+        downloadProgressMap.set(matchingRecord.id, {
+          percent: progress.percent,
+          receivedSize: progress.receivedSize,
+          totalSize: progress.totalSize
+        });
+        // 触发重新渲染
+        setTransferHistory(prev => [...prev]);
+        console.log(`[Desktop] Updated progress for record ID: ${matchingRecord.id}`);
+      } else {
+        console.warn(`[Desktop] No matching record found for: ${progress.fileName}`);
+      }
+    });
+    window.windrop.onMobileUploadProgress((progress) => {
+      // 移动端上传进度（显示为桌面端的接收进度）
+      console.log(`[Desktop] Mobile upload progress: ${progress.fileName} ${progress.percent}%`);
+      setReceiveProgress({
+        percent: progress.percent,
+        currentFile: progress.fileName,
+        totalSize: progress.totalSize,
+        sentSize: progress.sentSize
+      });
+      setIsDownloading(true);
     });
     window.windrop.onUpdateAvailable((info) => {
       setUpdateStatus('available');
@@ -376,6 +426,8 @@ function App() {
                     sendProgress={sendProgress}
                     receiveProgress={receiveProgress}
                     devices={devices}
+                    downloadProgressMap={downloadProgressMap}
+                    transferHistory={transferHistory}
                     onSelectFiles={handleSelectFiles}
                     onRemoveFile={(i) => setSelectedFiles(prev => prev.filter((_, idx) => idx !== i))}
                     onClearFiles={() => setSelectedFiles([])}
