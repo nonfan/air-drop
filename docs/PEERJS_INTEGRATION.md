@@ -53,16 +53,20 @@ export class PeerJSTransport extends EventEmitter {
   private peerId: string = '';
 
   async connect(config: { peerId?: string }): Promise<void> {
-    // 创建 Peer 实例
+    // 创建 Peer 实例（ICE 服务器配置在这里）
     this.peer = new Peer(config.peerId || undefined, {
-      // 使用公共 PeerServer（或自建）
-      host: 'peerjs-server.com',
-      port: 443,
-      secure: true,
-      // 或使用自己的服务器
-      // host: '192.168.0.2',
-      // port: 9000,
-      // path: '/peerjs'
+      host: 'localhost',
+      port: 9000,
+      path: '/peerjs',
+      secure: false,
+      // ICE 服务器配置（用于 NAT 穿透）
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' }
+        ]
+      }
     });
 
     await this.waitForOpen();
@@ -472,33 +476,40 @@ export class PeerTransferManager {
 
 ```typescript
 // src/main/services/peerServer.ts
-import { PeerServer } from 'peer';
+import { ExpressPeerServer } from 'peer';
 import express from 'express';
 import { PORTS } from '../config';
 
 export function startPeerServer() {
   const app = express();
   
-  // 创建 PeerServer
-  const peerServer = PeerServer({
-    port: PORTS.PEER_SERVER,
-    path: '/peerjs',
-    allow_discovery: true,
-    
-    // 配置 ICE 服务器（用于 NAT 穿透）
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    }
+  // 创建 HTTP 服务器
+  const server = app.listen(PORTS.PEER_SERVER, '0.0.0.0', () => {
+    console.log(`[PeerServer] Started on port ${PORTS.PEER_SERVER}`);
   });
 
-  console.log(`PeerServer started on port ${PORTS.PEER_SERVER}`);
-  
-  return peerServer;
+  // 创建 PeerServer（注意：ICE 服务器配置在客户端，不在这里）
+  const peerServer = ExpressPeerServer(server, {
+    path: '/peerjs',
+    allow_discovery: true
+  });
+
+  app.use('/peerjs', peerServer);
+
+  // 监听连接事件
+  peerServer.on('connection', (client) => {
+    console.log('[PeerServer] Client connected:', client.getId());
+  });
+
+  peerServer.on('disconnect', (client) => {
+    console.log('[PeerServer] Client disconnected:', client.getId());
+  });
+
+  return { server, peerServer };
 }
 ```
+
+**注意：** ICE 服务器（STUN/TURN）配置应该在客户端 Peer 实例中配置，而不是在 PeerServer 中。
 
 ### 在主进程中启动
 

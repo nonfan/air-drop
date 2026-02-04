@@ -74,10 +74,27 @@ export class WebFileServer extends EventEmitter {
 
   private getDeviceListForMobile(excludeClientId?: string) {
     const devices: { id: string; name: string; model: string; ip: string; type: 'pc' | 'mobile' }[] = [];
-    devices.push({ id: 'host', name: this.deviceName, model: 'Windows', ip: this.getLocalIP(), type: 'pc' });
+    // 每次都创建新对象，确保 React 能检测到变化
+    devices.push({ 
+      id: 'host', 
+      name: this.deviceName, 
+      model: 'Windows', 
+      ip: this.getLocalIP(), 
+      type: 'pc',
+      // 添加时间戳确保对象唯一性
+      _timestamp: Date.now()
+    } as any);
     for (const [id, client] of this.clients.entries()) {
       if (id !== excludeClientId) {
-        devices.push({ id, name: client.name, model: client.model, ip: client.ip, type: 'mobile' });
+        devices.push({ 
+          id, 
+          name: client.name, 
+          model: client.model, 
+          ip: client.ip, 
+          type: 'mobile',
+          // 添加时间戳确保对象唯一性
+          _timestamp: Date.now()
+        } as any);
       }
     }
     console.log(`[WebServer] getDeviceListForMobile (exclude: ${excludeClientId}):`, devices);

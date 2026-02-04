@@ -103,8 +103,10 @@ function AppContent() {
   }, [settings.showNotifications]);
 
   // 设备更新回调 - 使用 useCallback 稳定引用
-  const handleDevicesUpdate = useCallback((devices: Device[]) => {
-    setDevices(devices);
+  const handleDevicesUpdate = useCallback((newDevices: Device[]) => {
+    console.log('[App] Devices updated:', newDevices);
+    // 强制创建新数组，确保 React 检测到变化
+    setDevices([...newDevices]);
   }, []);
 
   // 应用版本回调 - 使用 useCallback 稳定引用

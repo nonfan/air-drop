@@ -87,7 +87,7 @@ export function DeviceList({
     <div className="grid grid-cols-4 gap-3">
       {devices.map(device => (
         <button
-          key={device.id}
+          key={`${device.id}-${device.name}-${device.model}`}
           onClick={() => handleDeviceClick(device.id)}
           disabled={!canSend}
           className={`transition-all group flex flex-col items-center gap-2 ${!canSend

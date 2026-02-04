@@ -54,7 +54,14 @@ export class PeerJSTransport extends EventEmitter {
       port: this.config.port || 9000,
       path: this.config.path || '/peerjs',
       secure: this.config.secure || false,
-      debug: 2 // 开启调试日志
+      debug: 2, // 开启调试日志
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' }
+        ]
+      }
     });
 
     await this.waitForOpen();

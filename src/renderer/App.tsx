@@ -9,7 +9,8 @@ import {
   HistoryList,
   QRModal,
   SettingsPage,
-  Footer
+  Footer,
+  DownloadProgressCard
 } from './components';
 import { useTheme, useScroll, usePaste } from './hooks';
 import { formatSize, formatTime } from './utils';
@@ -651,6 +652,16 @@ function App() {
             setCopiedId('url');
             setTimeout(() => setCopiedId(null), 1500);
           }}
+        />
+      )}
+
+      {/* 下载进度卡片 */}
+      {isDownloading && receiveProgress && (
+        <DownloadProgressCard
+          fileName={receiveProgress.currentFile || '未知文件'}
+          fileSize={receiveProgress.totalSize}
+          progress={receiveProgress.percent}
+          receivedSize={receiveProgress.sentSize}
         />
       )}
     </div>

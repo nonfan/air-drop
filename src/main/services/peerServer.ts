@@ -15,16 +15,7 @@ export function startPeerServer() {
 
   const peerServer = ExpressPeerServer(server, {
     path: '/peerjs',
-    allow_discovery: true,
-    
-    // 配置 ICE 服务器（用于 NAT 穿透）
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
-      ]
-    }
+    allow_discovery: true
   });
 
   app.use('/peerjs', peerServer);

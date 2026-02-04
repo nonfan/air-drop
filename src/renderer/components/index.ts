@@ -9,3 +9,4 @@ export { QRModal } from './QRModal';
 export { SettingsPage } from './SettingsPage';
 export { Logo } from './Logo';
 export { Footer } from './Footer';
+export { DownloadProgressCard } from './DownloadProgressCard';
