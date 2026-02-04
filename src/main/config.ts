@@ -27,6 +27,9 @@ export const APP_CONFIG = {
     // 传输服务器起始端口（会自动递增查找可用端口）
     TRANSFER_SERVER: 3001,
     
+    // PeerJS 信令服务器端口
+    PEER_SERVER: 9000,
+    
     // 开发服务器端口（Vite）
     DEV_SERVER: 5173,
     
@@ -35,6 +38,14 @@ export const APP_CONFIG = {
       HOST: '192.168.0.2',
       PORT: 8888,
     }
+  },
+  
+  // PeerJS 配置
+  PEER_CONFIG: {
+    host: 'localhost',
+    port: 9000,
+    path: '/peerjs',
+    secure: false
   }
 } as const;
 

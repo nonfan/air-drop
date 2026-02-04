@@ -4,6 +4,7 @@
 import { BrowserWindow, Notification } from 'electron';
 import { ServiceAdapter } from '../../desktop/adapters/ServiceAdapter';
 import { WebFileServer } from './webServer';
+import { startPeerServer } from './peerServer';
 import { store } from '../store';
 import { addTransferRecord, addTextRecord } from '../utils/history';
 import { flashWindow } from '../window';
@@ -14,6 +15,7 @@ export interface Services {
   serviceAdapter: ServiceAdapter;
   webServer: WebFileServer;
   webServerURL: string;
+  peerServer?: any;
 }
 
 /**
@@ -27,11 +29,20 @@ export async function initializeServices(
 ): Promise<Services> {
   console.log('[ServiceManager] Initializing services...');
 
-  // 1. 初始化核心服务适配器
+  // 1. 启动 PeerJS 信令服务器
+  let peerServer;
+  try {
+    peerServer = startPeerServer();
+    console.log('[ServiceManager] PeerServer started successfully');
+  } catch (error) {
+    console.error('[ServiceManager] Failed to start PeerServer:', error);
+  }
+
+  // 2. 初始化核心服务适配器
   const serviceAdapter = new ServiceAdapter(mainWindow!, deviceName, port, downloadPath);
   await serviceAdapter.initialize();
 
-  // 2. 初始化 Web 服务器（处理移动端连接）
+  // 3. 初始化 Web 服务器（处理移动端连接）
   const webServer = new WebFileServer(downloadPath, deviceName);
   setupWebServerEvents(webServer, mainWindow, downloadPath);
 
@@ -45,7 +56,8 @@ export async function initializeServices(
   return {
     serviceAdapter,
     webServer,
-    webServerURL: webServer.getURL()
+    webServerURL: webServer.getURL(),
+    peerServer
   };
 }
 

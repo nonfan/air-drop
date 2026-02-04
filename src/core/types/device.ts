@@ -6,6 +6,7 @@ export interface Device {
   type: 'pc' | 'mobile';
   model?: string;
   lastSeen?: number;
+  peerId?: string; // PeerJS ID，用于 P2P 直连
 }
 
 export interface DeviceInfo {
