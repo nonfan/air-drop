@@ -46,6 +46,25 @@ export const APP_CONFIG = {
     port: 9000,
     path: '/peerjs',
     secure: false
+  },
+  
+  // PeerJS 发现服务配置
+  PEER_DISCOVERY: {
+    // 使用公共 PeerServer（跨网段发现）
+    host: 'peerjs-server.com',
+    port: 443,
+    secure: true,
+    
+    // 或使用自建服务器（局域网）
+    // host: '192.168.0.2',
+    // port: 9000,
+    // secure: false,
+    
+    // 广播间隔（毫秒）
+    announceInterval: 10000,
+    
+    // 设备超时时间（毫秒）
+    deviceTimeout: 30000
   }
 } as const;
 
