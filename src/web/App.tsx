@@ -7,9 +7,9 @@ import {
   DesktopLayout,
   ServerSelector
 } from './components';
-import { TransferPageView, HistoryPageView, SettingsPageView, SecuritySettingsPageView } from './pages';
+import { TransferPageView, HistoryPageView, SettingsPageView } from './pages';
 import { AppContext } from './contexts/AppContext';
-import type { Device, TransferProgress, View } from './types';
+import type { Device, TransferProgress, View, HistoryItem } from './types';
 import {
   isMobileDevice,
   copyToClipboard,
@@ -26,7 +26,6 @@ import {
   useDownload,
   useUDPDiscovery
 } from './hooks';
-import iconUrl from './assets/icon.png';
 
 export default function App() {
   return (
@@ -68,8 +67,18 @@ function AppContent() {
   const [isRefreshing, setIsRefreshing] = useState(false); // 新增：刷新状态
 
   // 使用自定义 Hooks
-  const { settings, saveSettings } = useSettings();
+  const { settings, saveSettings, initializeSettings } = useSettings();
   const { history, addHistoryItem, clearHistory } = useHistory();
+
+  // 初始化设备名称（只在首次加载时执行）
+  useEffect(() => {
+    if (!settings) {
+      // 生成设备名称
+      const deviceName = `Web-${Math.random().toString(36).slice(2, 8)}`;
+      initializeSettings(deviceName);
+      console.log('[App] Initialized device name:', deviceName);
+    }
+  }, [settings, initializeSettings]);
 
   // 处理历史记录接收（不再显示弹窗提示）
   const handleHistoryItemReceived = useCallback((item: HistoryItem) => {
@@ -97,10 +106,10 @@ function AppContent() {
 
   // 显示通知的回调 - 使用 useCallback 避免每次渲染创建新函数
   const showNotification = useCallback((title: string, body: string) => {
-    if (settings.showNotifications) {
-      showSystemNotification(title, body, iconUrl);
+    if (settings?.showNotifications) {
+      showSystemNotification(title, body);
     }
-  }, [settings.showNotifications]);
+  }, [settings?.showNotifications]);
 
   // 设备更新回调 - 使用 useCallback 稳定引用
   const handleDevicesUpdate = useCallback((newDevices: Device[]) => {
@@ -156,9 +165,9 @@ function AppContent() {
     setSendProgress(null);
   }, []);
 
-  // Socket.IO 连接
+  // Socket.IO 连接（只在设备名称初始化后才连接）
   const { socket } = useSocket({
-    deviceName: settings.deviceName,
+    deviceName: settings?.deviceName || '',
     onDevicesUpdate: handleDevicesUpdate,
     onHistoryItemReceived: handleHistoryItemReceived,
     onNotification: showNotification,
@@ -357,6 +366,21 @@ function AppContent() {
     setMode('file');
   }, [handleFileDrop]);
 
+  // 如果设置还未加载，显示加载状态
+  if (!settings) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        background: 'var(--bg-primary)'
+      }}>
+        <div>正在初始化...</div>
+      </div>
+    );
+  }
+
   // Context 值
   const contextValue = {
     mode,
@@ -415,8 +439,6 @@ function AppContent() {
             <Route path="/" element={<TransferPageView />} />
             <Route path="/history" element={<HistoryPageView />} />
             <Route path="/settings" element={<SettingsPageView />} />
-            {/* 暂时禁用安全设置 - 需要 HTTPS 或 localhost */}
-            {/* <Route path="/settings/security" element={<SecuritySettingsPageView />} /> */}
           </Routes>
         </MobileLayout>
       ) : (
@@ -433,8 +455,6 @@ function AppContent() {
             <Route path="/" element={<TransferPageView />} />
             <Route path="/history" element={<HistoryPageView />} />
             <Route path="/settings" element={<SettingsPageView />} />
-            {/* 暂时禁用安全设置 - 需要 HTTPS 或 localhost */}
-            {/* <Route path="/settings/security" element={<SecuritySettingsPageView />} /> */}
           </Routes>
         </DesktopLayout>
       )}

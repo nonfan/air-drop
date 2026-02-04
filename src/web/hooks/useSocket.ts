@@ -34,12 +34,18 @@ export function useSocket(options: UseSocketOptions) {
   const { deviceName } = options;
 
   useEffect(() => {
+    // 如果设备名称为空，不连接
+    if (!deviceName) {
+      console.log('[Socket.IO] Device name not set, skipping connection');
+      return;
+    }
+
     const isDev = import.meta.env.DEV;
     
     // 使用配置文件中的固定 IP 和端口
     const socketUrl = getSocketUrl();
     
-    console.log('[Socket.IO] Connecting to fixed IP:', socketUrl);
+    console.log('[Socket.IO] Connecting to fixed IP:', socketUrl, 'with device name:', deviceName);
 
     const socketInstance = io(socketUrl, {
       transports: ['websocket', 'polling'],
