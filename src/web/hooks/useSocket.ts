@@ -45,7 +45,10 @@ export function useSocket(options: UseSocketOptions) {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 3000,
-      reconnectionAttempts: Infinity
+      reconnectionAttempts: Infinity,
+      query: {
+        deviceName: deviceName  // 在连接时就发送设备名称
+      }
     });
 
     // 连接事件

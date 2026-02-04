@@ -744,7 +744,9 @@ export class WebFileServer extends EventEmitter {
     const ip = (socket.handshake.address || '').replace('::ffff:', '');
     
     let clientId = '';
-    let clientName = `手机 ${ip.split('.').pop()}`;
+    // 从握手数据中获取设备名称，如果没有则使用默认值
+    const handshakeData = socket.handshake.query;
+    let clientName = (handshakeData.deviceName as string) || `手机 ${ip.split('.').pop()}`;
     let isReconnect = false;
     
     // 检查是否是重连（相同 IP 且 Socket 仍然连接）
