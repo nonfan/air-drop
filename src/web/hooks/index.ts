@@ -8,3 +8,4 @@ export * from './useSettings';
 export * from './useFileTransfer';
 export * from './useDownload';
 export * from './useUDPDiscovery';
+export * from './useSecurityService';

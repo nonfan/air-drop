@@ -5,10 +5,13 @@ export interface Transfer {
   id: string;
   fileName: string;
   fileSize: number;
+  filePath?: string;
   targetId: string;
   status: 'pending' | 'active' | 'paused' | 'completed' | 'failed';
   progress: number;
   speed: number;
+  sentSize: number;
+  totalSize: number;
   startTime?: number;
   endTime?: number;
   error?: Error;
@@ -30,10 +33,13 @@ export class TransferManager extends EventEmitter {
       id: uuidv4(),
       fileName: file.name,
       fileSize: file.size,
+      filePath: (file as any).path, // Node.js File 对象可能有 path 属性
       targetId,
       status: 'pending',
       progress: 0,
-      speed: 0
+      speed: 0,
+      sentSize: 0,
+      totalSize: file.size
     };
 
     this.transfers.set(transfer.id, transfer);
@@ -62,6 +68,7 @@ export class TransferManager extends EventEmitter {
       await this.executeTransfer(transfer);
       transfer.status = 'completed';
       transfer.endTime = Date.now();
+      transfer.progress = 100;
       this.emit('transfer-completed', transfer);
     } catch (error) {
       transfer.status = 'failed';
@@ -112,16 +119,56 @@ export class TransferManager extends EventEmitter {
       .filter((t): t is Transfer => t !== undefined);
   }
 
+  /**
+   * 设置传输处理器（由外部注入）
+   */
+  setTransferHandler(handler: (transfer: Transfer) => Promise<void>) {
+    this.transferHandler = handler;
+  }
+
+  private transferHandler?: (transfer: Transfer) => Promise<void>;
+
   private async executeTransfer(transfer: Transfer): Promise<void> {
-    // TODO: 实际传输逻辑将在 Phase 2 实现
-    // 这里只是占位符，模拟传输过程
-    console.log(`[TransferManager] Starting transfer: ${transfer.fileName}`);
+    console.log(`[TransferManager] Starting transfer: ${transfer.fileName} to ${transfer.targetId}`);
     
-    // 模拟进度更新
-    for (let i = 0; i <= 100; i += 10) {
-      transfer.progress = i;
-      this.emit('transfer-progress', transfer);
-      await new Promise(resolve => setTimeout(resolve, 100));
+    // 如果有外部传输处理器，使用它
+    if (this.transferHandler) {
+      try {
+        await this.transferHandler(transfer);
+        return;
+      } catch (error) {
+        console.error('[TransferManager] Transfer handler error:', error);
+        throw error;
+      }
     }
+    
+    // 否则使用模拟传输（用于测试）
+    console.log('[TransferManager] Using simulated transfer (no handler set)');
+    const steps = 10;
+    const stepDelay = 100;
+    
+    for (let i = 0; i <= steps; i++) {
+      if (transfer.status !== 'active') {
+        throw new Error('Transfer interrupted');
+      }
+      
+      transfer.progress = (i / steps) * 100;
+      transfer.sentSize = Math.floor((transfer.totalSize * i) / steps);
+      
+      // 计算速度 (bytes per second)
+      if (transfer.startTime) {
+        const elapsed = (Date.now() - transfer.startTime) / 1000;
+        transfer.speed = elapsed > 0 ? transfer.sentSize / elapsed : 0;
+      }
+      
+      this.emit('transfer-progress', transfer);
+      
+      if (i < steps) {
+        await new Promise(resolve => setTimeout(resolve, stepDelay));
+      }
+    }
+    
+    console.log(`[TransferManager] Transfer completed: ${transfer.fileName}`);
   }
 }
+

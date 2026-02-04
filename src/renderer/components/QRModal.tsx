@@ -125,16 +125,9 @@ export function QRModal({ webURL: initialURL, copiedId, onClose, onCopy }: QRMod
         </button>
 
         {!isLoading && !isLocalhost && (
-          <>
-            <p className="text-[10px] text-muted text-center mt-3">
-              使用手机浏览器扫描二维码或访问上方地址
-            </p>
-            <div className="mt-2 p-2 bg-accent/10 border border-accent/30 rounded-lg">
-              <p className="text-[10px] text-accent text-center">
-                💡 iOS 用户：扫码后会自动连接，无需手动发现设备
-              </p>
-            </div>
-          </>
+          <p className="text-[10px] text-muted text-center mt-3">
+            使用手机浏览器扫描二维码或访问上方地址
+          </p>
         )}
       </div>
     </div>

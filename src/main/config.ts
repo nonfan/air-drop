@@ -18,6 +18,24 @@ export const APP_CONFIG = {
   
   // 版本号
   VERSION: '1.0.0',
+  
+  // 端口配置
+  PORTS: {
+    // Web 服务器端口（Socket.IO）
+    WEB_SERVER: 8888,
+    
+    // 传输服务器起始端口（会自动递增查找可用端口）
+    TRANSFER_SERVER: 3001,
+    
+    // 开发服务器端口（Vite）
+    DEV_SERVER: 5173,
+    
+    // 固定 IP 连接配置（Web 端使用）
+    FIXED_IP: {
+      HOST: '192.168.0.2',
+      PORT: 8888,
+    }
+  }
 } as const;
 
 // 生成默认设备名

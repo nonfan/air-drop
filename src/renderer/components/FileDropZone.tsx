@@ -46,7 +46,7 @@ export function FileDropZone({
 
       if (matchingRecord) {
         const progress = downloadProgressMap.get(matchingRecord.id);
-        if (progress && progress.percent > 0 && progress.percent < 100) {
+        if (progress && progress.percent >= 0 && progress.percent < 100) {
           return {
             fileId: file.id,
             fileName: file.name,
@@ -58,6 +58,14 @@ export function FileDropZone({
       return null;
     })
     .filter((p): p is NonNullable<typeof p> => p !== null);
+
+  console.log('[FileDropZone] Mobile download progress:', {
+    sharedFilesCount: sharedFiles.length,
+    progressCount: mobileDownloadProgress.length,
+    downloadProgressMapSize: downloadProgressMap.size,
+    sharedFiles: sharedFiles.map(f => ({ id: f.id, name: f.name, targetId: f.targetId })),
+    mobileDownloadProgress
+  });
   return (
     <div className="space-y-4">
       {/* 桌面端传输进度（发送/接收） */}
@@ -140,7 +148,7 @@ export function FileDropZone({
                   </svg>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{file.name}</div>
-                    <div className="text-xs text-muted">待下载中 · 发送给 {device?.name || '未知设备'}</div>
+                    <div className="text-xs text-muted">已发送 · 等待 {device?.name || '未知设备'} 下载</div>
                   </div>
                   <button onClick={() => onRemoveSharedFile(file.id)} className="w-6 h-6 rounded-md flex items-center justify-center text-muted hover:bg-hover hover:text-danger transition-all flex-shrink-0">
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

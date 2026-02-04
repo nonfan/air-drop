@@ -15,3 +15,9 @@ export { HistoryItem, type HistoryItemType } from './HistoryItem';
 export { HistoryList } from './HistoryList';
 
 export { Badge, BadgeSuccess, BadgeError, BadgeLoading } from './Badge';
+
+// 安全组件
+export { PairingDialog } from './PairingDialog';
+export { TrustedDevicesList } from './TrustedDevicesList';
+export { SecuritySettings } from './SecuritySettings';
+export { PermissionsDialog, Permission } from './PermissionsDialog';

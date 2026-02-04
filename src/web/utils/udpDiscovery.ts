@@ -2,6 +2,7 @@
  * UDP 广播发现工具
  * 用于手机端主动探测局域网内的桌面端服务器
  */
+import { WEB_CONFIG } from '../config';
 
 export interface DiscoveredServer {
   id: string;
@@ -129,7 +130,7 @@ export class UDPDiscovery {
       const concurrency = 20;
       for (let i = 0; i < allIPs.length; i += concurrency) {
         const batch = allIPs.slice(i, i + concurrency);
-        await Promise.all(batch.map(ip => this.probeServer(ip, 8080)));
+        await Promise.all(batch.map(ip => this.probeServer(ip, WEB_CONFIG.FIXED_IP.PORT)));
         
         // 如果已经找到服务器，可以提前结束（可选）
         if (this.servers.size > 0 && i === 0) {

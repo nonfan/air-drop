@@ -3,9 +3,7 @@ import { ipcMain, dialog, shell, clipboard, nativeImage } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import Store from 'electron-store';
-import type { IDeviceDiscovery } from '../services/serviceManager';
-import type { FileTransferServer } from '../services/transfer';
-import type { PeerTransferService } from '../services/peerTransfer';
+import type { DiscoveryService } from '../../core/services/discovery/DiscoveryService';
 import type { WebFileServer } from '../services/webServer';
 
 interface StoreSchema {
@@ -19,13 +17,16 @@ interface StoreSchema {
   textHistory: any[];
 }
 
+import type { ServiceAdapter } from '../../desktop/adapters/ServiceAdapter';
+
 export function registerFileHandlers(
   store: Store<StoreSchema>,
   getMainWindow: () => Electron.BrowserWindow | null,
-  discovery: () => IDeviceDiscovery | null,
-  transferServer: () => FileTransferServer | null,
-  peerTransferService: () => PeerTransferService | null,
-  webServer: () => WebFileServer | null
+  discovery: () => DiscoveryService | null,
+  _transferServer: () => null, // 已移除
+  _peerTransferService: () => null, // 已移除
+  webServer: () => WebFileServer | null,
+  serviceAdapter: () => ServiceAdapter | null
 ) {
   ipcMain.handle('select-files', async () => {
     const result = await dialog.showOpenDialog(getMainWindow()!, {
@@ -45,23 +46,40 @@ export function registerFileHandlers(
     const device = discovery()?.getDevices().find(d => d.id === deviceId);
     if (!device) throw new Error('Device not found');
     
-    if (device.peerId && peerTransferService()) {
-      console.log('Using PeerJS for transfer to:', device.peerId);
-      return peerTransferService()!.sendFiles(device.peerId, files);
-    } else {
-      console.log('Using WebSocket for transfer to:', device.ip, device.port);
-      return transferServer()?.sendFiles(device.ip, device.port, files);
+    const adapter = serviceAdapter();
+    if (!adapter) throw new Error('Service adapter not initialized');
+    
+    try {
+      // 使用新架构发送文件
+      const transferIds = await adapter.sendFiles(deviceId, files);
+      
+      console.log('[IPC] Files sent successfully:', transferIds);
+      
+      return {
+        success: true,
+        transferIds,
+        message: `Started ${files.length} transfer(s)`
+      };
+    } catch (error: any) {
+      console.error('[IPC] Failed to send files:', error);
+      throw new Error(`Failed to send files: ${error.message}`);
     }
   });
 
   ipcMain.handle('accept-transfer', (_e, transferId: string) => {
-    peerTransferService()?.acceptTransfer(transferId);
-    transferServer()?.acceptTransfer(transferId);
+    const adapter = serviceAdapter();
+    if (!adapter) throw new Error('Service adapter not initialized');
+    
+    adapter.acceptTransfer(transferId);
+    return { success: true };
   });
 
   ipcMain.handle('reject-transfer', (_e, transferId: string) => {
-    peerTransferService()?.rejectTransfer(transferId);
-    transferServer()?.rejectTransfer(transferId);
+    const adapter = serviceAdapter();
+    if (!adapter) throw new Error('Service adapter not initialized');
+    
+    adapter.rejectTransfer(transferId);
+    return { success: true };
   });
 
   ipcMain.handle('open-download-folder', () => {

@@ -4,6 +4,7 @@
 import { useState, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
 import { setStorageItem, STORAGE_KEYS } from '../utils';
+import { generateFileThumbnail } from '../utils/videoThumbnail';
 import type { FileItem } from '../types';
 
 interface UseFileTransferOptions {
@@ -20,6 +21,30 @@ export function useFileTransfer(options: UseFileTransferOptions) {
 
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([]);
   const [isSending, setIsSending] = useState(false);
+
+  // 清理隐藏的 input 元素的辅助函数
+  const cleanupHiddenInput = useCallback(() => {
+    const hiddenInput = (window as any).__fileInput;
+    if (hiddenInput && hiddenInput.parentNode) {
+      hiddenInput.parentNode.removeChild(hiddenInput);
+      delete (window as any).__fileInput;
+      console.log('[FileSelect] Cleaned up hidden input element');
+    }
+  }, []);
+
+  // 包装 setSelectedFiles，当清空文件时也清理 input
+  const setSelectedFilesWithCleanup = useCallback((filesOrUpdater: FileItem[] | ((prev: FileItem[]) => FileItem[])) => {
+    setSelectedFiles(prev => {
+      const newFiles = typeof filesOrUpdater === 'function' ? filesOrUpdater(prev) : filesOrUpdater;
+      
+      // 如果文件列表被清空，清理隐藏的 input
+      if (newFiles.length === 0 && prev.length > 0) {
+        cleanupHiddenInput();
+      }
+      
+      return newFiles;
+    });
+  }, [cleanupHiddenInput]);
 
   // 选择文件
   const selectFiles = useCallback(() => {
@@ -42,21 +67,51 @@ export function useFileTransfer(options: UseFileTransferOptions) {
         // 立即获取文件元数据（不读取内容）
         // File 对象是轻量引用，只包含元数据（name, size, type, lastModified）
         // 实际文件内容只在读取时（如 FormData.append）才会加载
-        const newFiles = Array.from(target.files).map(file => {
+        const filesArray = Array.from(target.files);
+        
+        // 立即添加文件到列表（不等待缩略图）
+        const newFiles = filesArray.map(file => {
           console.log(`[FileSelect] File metadata: ${file.name}, ${file.size} bytes, ${file.type}`);
           return {
             name: file.name,
             size: file.size,
-            file // 保存 File 引用，不读取内容
+            file, // 保存 File 引用，不读取内容
+            thumbnail: undefined // 缩略图稍后异步生成
           };
         });
         
-        setSelectedFiles(prev => [...prev, ...newFiles]);
+        setSelectedFilesWithCleanup(prev => [...prev, ...newFiles]);
+        
+        // 异步生成缩略图（不阻塞 UI）
+        filesArray.forEach(async (file, index) => {
+          try {
+            const thumbnail = await generateFileThumbnail(file, 200);
+            if (thumbnail) {
+              console.log(`[FileSelect] Thumbnail generated for: ${file.name}`);
+              // 更新对应文件的缩略图
+              setSelectedFilesWithCleanup(prev => 
+                prev.map(item => 
+                  item.file === file ? { ...item, thumbnail } : item
+                )
+              );
+            }
+          } catch (error) {
+            console.error(`[FileSelect] Failed to generate thumbnail for ${file.name}:`, error);
+          }
+        });
       }
+      
+      // iOS Safari 修复：保持 input 元素在 DOM 中，防止 File 对象失效
+      // 将 input 隐藏但不移除，直到文件发送完成
+      input.style.display = 'none';
+      document.body.appendChild(input);
+      
+      // 保存 input 引用，以便后续清理
+      (window as any).__fileInput = input;
     };
     
     input.click();
-  }, []);
+  }, [setSelectedFilesWithCleanup]);
 
   // 处理文件拖放
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -124,7 +179,11 @@ export function useFileTransfer(options: UseFileTransferOptions) {
           // 监听上传进度
           xhr.upload.addEventListener('progress', (e) => {
             if (e.lengthComputable) {
-              const percent = Math.round((e.loaded / e.total) * 100);
+              // iOS 修复：限制进度最大值为 99%，避免闪烁到 100%
+              // 只有在真正完成时才显示 100%
+              const rawPercent = Math.round((e.loaded / e.total) * 100);
+              const percent = Math.min(rawPercent, 99); // 限制最大 99%
+              
               console.log(`[Upload] Progress: ${fileItem.name} ${percent}% (${e.loaded}/${e.total})`);
               
               // 更新本地进度（显示在移动端 UI）
@@ -154,6 +213,7 @@ export function useFileTransfer(options: UseFileTransferOptions) {
             
             if (xhr.status >= 200 && xhr.status < 300) {
               // 上传成功，显示 100% 进度
+              console.log('[SendFiles] Showing 100% completion');
               if (onProgressUpdate) {
                 onProgressUpdate({
                   percent: 100,
@@ -163,10 +223,20 @@ export function useFileTransfer(options: UseFileTransferOptions) {
                 });
               }
               
-              // 延迟 500ms 让用户看到 100% 完成状态
+              // 同步 100% 给桌面端
+              if (socket && socket.connected) {
+                socket.emit('upload-progress-sync', {
+                  fileName: fileItem.name,
+                  percent: 100,
+                  sentSize: fileItem.size,
+                  totalSize: fileItem.size
+                });
+              }
+              
+              // 延迟 800ms 让用户看到 100% 完成状态
               setTimeout(() => {
                 resolve();
-              }, 500);
+              }, 800);
             } else {
               console.error('[SendFiles] Upload failed:', xhr.status, xhr.responseText);
               reject(new Error(`Upload failed: ${xhr.status}`));
@@ -198,6 +268,9 @@ export function useFileTransfer(options: UseFileTransferOptions) {
       setSelectedFiles([]);
       setIsSending(false);
       
+      // iOS Safari 修复：清理隐藏的 input 元素
+      cleanupHiddenInput();
+      
       // 通知完成
       if (onComplete) {
         onComplete();
@@ -206,17 +279,20 @@ export function useFileTransfer(options: UseFileTransferOptions) {
       console.error('[SendFiles] Send error:', error);
       setIsSending(false);
       
+      // iOS Safari 修复：清理隐藏的 input 元素（错误情况）
+      cleanupHiddenInput();
+      
       // 通知错误
       if (onError) {
         onError();
       }
     }
-  }, [socket, selectedDevice, selectedFiles, onSaveLastDevice, onProgressUpdate, onComplete, onError]);
+  }, [socket, selectedDevice, selectedFiles, onSaveLastDevice, onProgressUpdate, onComplete, onError, cleanupHiddenInput]);
 
   return {
     selectedFiles,
     isSending,
-    setSelectedFiles,
+    setSelectedFiles: setSelectedFilesWithCleanup,
     selectFiles,
     handleDrop,
     sendFiles

@@ -246,49 +246,45 @@ export function HistoryItem({
         </div>
 
         {/* 右侧内容区域 */}
-        <div className={`flex-1 min-w-0 ${isDisabled ? 'pr-20' : 'pr-10'}`}>
-          <div className="flex flex-col">
-            {/* 设备信息和时间 */}
-            <div className="flex items-center gap-2 text-xs text-muted mb-1">
-              <span>{item.from || '未知设备'}</span>
-              <span>·</span>
-              <span>{formatTime(item.timestamp)}</span>
-            </div>
-
-            {/* 内容 */}
-            {item.type === 'text' ? (
-              <div className="text-sm break-all line-clamp-2">
-                {item.content}
-              </div>
-            ) : (
-              <>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-sm font-medium truncate">
-                    {item.fileName}
-                  </span>
-                  <span className="text-xs text-muted flex-shrink-0">
-                    ({formatSize(item.fileSize!)})
-                  </span>
-                </div>
-
-                {/* 下载进度条 */}
-                {isDownloading && currentDownloadProgress > 0 && !compact && (
-                  <div className="mt-2">
-                    <div className="flex items-center justify-between text-xs text-muted mb-1">
-                      <span>下载中...</span>
-                      <span>{currentDownloadProgress}%</span>
-                    </div>
-                    <div className="w-full h-1 bg-background rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-accent transition-all"
-                        style={{ width: `${currentDownloadProgress}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
+        <div className={`flex-1 min-w-0 ${isDisabled ? 'pr-20' : 'pr-10'} flex flex-col`}>
+          {/* 设备信息和时间 */}
+          <div className="flex items-center gap-2 text-xs text-muted mb-1">
+            <span>{item.from || '未知设备'}</span>
+            <span>·</span>
+            <span>{formatTime(item.timestamp)}</span>
           </div>
+
+          {/* 内容 */}
+          {item.type === 'text' ? (
+            <div className="text-sm break-all line-clamp-2">
+              {item.content}
+            </div>
+          ) : (
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-sm font-medium truncate">
+                {item.fileName}
+              </span>
+              <span className="text-xs text-muted flex-shrink-0">
+                ({formatSize(item.fileSize!)})
+              </span>
+            </div>
+          )}
+
+          {/* 下载进度条 - 放在卡片底部 */}
+          {item.type === 'file' && isDownloading && currentDownloadProgress > 0 && !compact && (
+            <div className="mt-auto pt-2">
+              <div className="flex items-center justify-between text-xs text-muted mb-1.5">
+                <span>接收中...</span>
+                <span className="font-medium">{currentDownloadProgress}%</span>
+              </div>
+              <div className="w-full h-1.5 bg-background rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-accent rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${currentDownloadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

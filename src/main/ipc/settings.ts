@@ -1,16 +1,14 @@
 // IPC 处理器 - 设置相关
 import { ipcMain, app } from 'electron';
 import Store from 'electron-store';
-import type { FileTransferServer } from '../services/transfer';
-import type { PeerTransferService } from '../services/peerTransfer';
 import type { StoreSchema } from '../store';
 
 let autoLaunchTimer: NodeJS.Timeout | null = null;
 
 export function registerSettingsHandlers(
   store: Store<StoreSchema>,
-  transferServer: () => FileTransferServer | null,
-  peerTransferService: () => PeerTransferService | null
+  _transferServer: () => null, // 已移除
+  _peerTransferService: () => null // 已移除
 ) {
   ipcMain.handle('get-settings', () => ({
     deviceName: store.get('deviceName'),
@@ -25,8 +23,7 @@ export function registerSettingsHandlers(
     if (settings.deviceName) store.set('deviceName', settings.deviceName);
     if (settings.downloadPath) {
       store.set('downloadPath', settings.downloadPath);
-      transferServer()?.setDownloadPath(settings.downloadPath);
-      peerTransferService()?.setDownloadPath(settings.downloadPath);
+      // TODO: 更新新架构的下载路径
     }
     if (typeof settings.autoAccept === 'boolean') store.set('autoAccept', settings.autoAccept);
     if (typeof settings.showNotifications === 'boolean') store.set('showNotifications', settings.showNotifications);

@@ -15,7 +15,7 @@ export class DiscoveryService extends EventEmitter {
 
   async start(): Promise<void> {
     // 尝试 mDNS（如果在 Electron 环境）
-    if (typeof window !== 'undefined' && (window as any).electron) {
+    if (typeof globalThis !== 'undefined' && (globalThis as any).window && (globalThis as any).window.electron) {
       try {
         await this.startMDNS();
         this.method = 'mdns';

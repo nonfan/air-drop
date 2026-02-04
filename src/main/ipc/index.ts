@@ -1,9 +1,8 @@
 // IPC 处理器统一导出
 import Store from 'electron-store';
-import type { IDeviceDiscovery } from '../services/serviceManager';
-import type { FileTransferServer } from '../services/transfer';
-import type { PeerTransferService } from '../services/peerTransfer';
+import type { DiscoveryService } from '../../core/services/discovery/DiscoveryService';
 import type { WebFileServer } from '../services/webServer';
+import type { ServiceAdapter } from '../../desktop/adapters/ServiceAdapter';
 import { registerDeviceHandlers } from './handlers';
 import { registerSettingsHandlers } from './settings';
 import { registerFileHandlers } from './files';
@@ -26,15 +25,16 @@ interface StoreSchema {
 export function registerAllHandlers(
   store: Store<StoreSchema>,
   getMainWindow: () => Electron.BrowserWindow | null,
-  discovery: () => IDeviceDiscovery | null,
-  transferServer: () => FileTransferServer | null,
-  peerTransferService: () => PeerTransferService | null,
+  discovery: () => DiscoveryService | null,
+  _transferServer: () => null, // 已移除
+  _peerTransferService: () => null, // 已移除
   webServer: () => WebFileServer | null,
-  getWebServerURL: () => string
+  getWebServerURL: () => string,
+  serviceAdapter: () => ServiceAdapter | null
 ) {
-  registerDeviceHandlers(store, getMainWindow, discovery, transferServer, peerTransferService, webServer);
-  registerSettingsHandlers(store, transferServer, peerTransferService);
-  registerFileHandlers(store, getMainWindow, discovery, transferServer, peerTransferService, webServer);
+  registerDeviceHandlers(store, getMainWindow, discovery, _transferServer, _peerTransferService, webServer);
+  registerSettingsHandlers(store, _transferServer, _peerTransferService);
+  registerFileHandlers(store, getMainWindow, discovery, _transferServer, _peerTransferService, webServer, serviceAdapter);
   registerWebHandlers(getWebServerURL, webServer);
   registerHistoryHandlers(store);
   registerUpdateHandlers();

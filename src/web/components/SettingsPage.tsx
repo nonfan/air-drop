@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Footer } from './common/Footer';
+import { SecuritySettings } from '../../shared/components';
 
 type Theme = 'system' | 'dark' | 'light';
 type AccentColor = 'blue' | 'green' | 'purple' | 'pink' | 'orange';
@@ -280,6 +281,35 @@ export function SettingsPage({ settings, onSaveSettings }: SettingsPageProps) {
             </div>
           </div>
         </div>
+
+        {/* 安全设置 - 暂时禁用，需要 HTTPS 或 localhost */}
+        {/* 
+        <div>
+          <h3 className="text-xs font-medium text-muted mb-3 px-1">安全</h3>
+          <div className="bg-secondary rounded-2xl p-4">
+            <button
+              onClick={() => {
+                // 导航到安全设置页面
+                window.location.hash = '#/settings/security';
+              }}
+              className="w-full flex items-center justify-between hover:bg-hover rounded-lg px-3 py-3 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <svg className="w-5 h-5 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+                <div className="text-left">
+                  <div className="text-sm text-foreground font-medium">安全与隐私</div>
+                  <div className="text-xs text-muted mt-0.5">加密、设备配对和权限管理</div>
+                </div>
+              </div>
+              <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        */}
 
         {/* 关于 */}
         <div>

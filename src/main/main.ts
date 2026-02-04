@@ -17,18 +17,6 @@ app.whenReady().then(async () => {
   const downloadPath = store.get('downloadPath') || app.getPath('downloads');
   store.set('downloadPath', downloadPath);
   
-  // 先注册 IPC 处理器（在创建窗口之前）
-  // 使用临时的空函数，稍后会被实际服务替换
-  registerAllHandlers(
-    store,
-    () => mainWindow,
-    () => services.discovery || null,
-    () => services.transferServer || null,
-    () => services.peerTransferService || null,
-    () => services.webServer || null,
-    () => services.webServerURL || ''
-  );
-  
   // 创建窗口和托盘
   mainWindow = await createMainWindow();
   tray = createAppTray(mainWindow, () => {
@@ -38,12 +26,27 @@ app.whenReady().then(async () => {
   });
   
   // 初始化服务
+  console.log('[Main] Initializing services...');
   services = await initializeServices(downloadPath, deviceName, mainWindow);
+  
+  // 注册 IPC 处理器
+  registerAllHandlers(
+    store,
+    () => mainWindow,
+    () => services.serviceAdapter?.getDiscovery() || null,
+    () => null, // transferServer (已移除)
+    () => null, // peerTransferService (已移除)
+    () => services.webServer || null,
+    () => services.webServerURL || '',
+    () => services.serviceAdapter || null
+  );
   
   // 配置自动更新
   if (app.isPackaged) {
     setupAutoUpdater(mainWindow);
   }
+  
+  console.log('[Main] Application started successfully');
 });
 
 app.on('window-all-closed', () => {
@@ -52,8 +55,8 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   setWindowQuitting(true);
   setIpcQuitting(true);
-  stopAllServices(services);
+  await stopAllServices(services);
 });

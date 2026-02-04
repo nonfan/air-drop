@@ -4,6 +4,7 @@
 import { useState, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
 import { getStorageItem, setStorageItem, STORAGE_KEYS } from '../utils';
+import { WEB_CONFIG } from '../config';
 
 export function useDownload(socket: Socket | null) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -42,7 +43,7 @@ export function useDownload(socket: Socket | null) {
       let downloadUrl = filePath;
       if (filePath.startsWith('/')) {
         const isDev = import.meta.env?.DEV;
-        const serverUrl = isDev ? 'http://localhost:8080' : window.location.origin;
+        const serverUrl = isDev ? `http://localhost:${WEB_CONFIG.FIXED_IP.PORT}` : window.location.origin;
         downloadUrl = `${serverUrl}${filePath}`;
       }
 

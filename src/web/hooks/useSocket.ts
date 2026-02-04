@@ -5,6 +5,7 @@ import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { getStorageItem, setStorageItem, STORAGE_KEYS } from '../utils';
 import type { Device, HistoryItem } from '../types';
+import { getSocketUrl } from '../config';
 
 interface UseSocketOptions {
   deviceName: string;
@@ -34,17 +35,11 @@ export function useSocket(options: UseSocketOptions) {
 
   useEffect(() => {
     const isDev = import.meta.env.DEV;
-    const lastConnectedUrl = getStorageItem<string | null>(STORAGE_KEYS.LAST_SERVER_URL, null);
-
-    let socketUrl: string;
-    if (lastConnectedUrl && !isDev) {
-      socketUrl = lastConnectedUrl;
-      console.log('[Socket.IO] Using last connected URL:', socketUrl);
-    } else {
-      socketUrl = isDev ? 'http://localhost:8080' : window.location.origin;
-    }
-
-    console.log('[Socket.IO] Connecting to:', socketUrl);
+    
+    // 使用配置文件中的固定 IP 和端口
+    const socketUrl = getSocketUrl();
+    
+    console.log('[Socket.IO] Connecting to fixed IP:', socketUrl);
 
     const socketInstance = io(socketUrl, {
       transports: ['websocket', 'polling'],
@@ -77,11 +72,6 @@ export function useSocket(options: UseSocketOptions) {
       console.log('[Socket.IO] Server confirmed connection:', data);
       if (data.appVersion) {
         callbacksRef.current.onAppVersionReceived(data.appVersion);
-      }
-
-      if (!isDev) {
-        setStorageItem(STORAGE_KEYS.LAST_SERVER_URL, socketUrl);
-        console.log('[Socket.IO] Saved server URL for future connections');
       }
 
       // 收到服务器确认后，再次请求设备列表

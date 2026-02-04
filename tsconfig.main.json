@@ -6,14 +6,35 @@
       "ES2020"
     ],
     "outDir": "dist/main",
-    "rootDir": "src/main",
+    "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    }
   },
   "include": [
-    "src/main/**/*"
+    "src/main/**/*",
+    "src/core/**/*",
+    "src/desktop/**/*",
+    "src/shared/types/**/*"
+  ],
+  "exclude": [
+    "src/renderer/**/*",
+    "src/web/**/*",
+    "src/mobile/**/*",
+    "src/core/__tests__/**/*",
+    "src/core/examples/**/*",
+    "src/desktop/hooks/**/*",
+    "src/core/services/security/**/*",
+    "src/core/services/transport/**/*",
+    "src/core/services/transfer/SecureTransferManager.ts",
+    "src/core/utils/ErrorHandler.ts"
   ]
 }

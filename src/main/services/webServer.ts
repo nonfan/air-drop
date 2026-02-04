@@ -41,7 +41,7 @@ export class WebFileServer extends EventEmitter {
   private io: SocketIOServer | null = null;
   private downloadPath: string;
   private deviceName: string;
-  private port: number = 8080;
+  private port: number = 8888;
   private sharedFiles: Map<string, SharedFileInfo> = new Map();
   private clients: Map<string, MobileClient> = new Map();
   private sharedTexts: Map<string, SharedText> = new Map();
@@ -86,7 +86,7 @@ export class WebFileServer extends EventEmitter {
 
   setDownloadPath(p: string) { this.downloadPath = p; }
 
-  async start(preferredPort: number = 8080): Promise<number> {
+  async start(preferredPort: number = 8888): Promise<number> {
     this.port = preferredPort;
     return new Promise((resolve, reject) => {
       this.httpServer = http.createServer((req, res) => this.handleRequest(req, res)) as any;
@@ -299,9 +299,12 @@ export class WebFileServer extends EventEmitter {
   }
 
   private serveTemplateFile(fileName: string, contentType: string, res: http.ServerResponse) {
-    const templatePath = path.join(__dirname, '../templates', fileName);
+    // __dirname 在编译后是 dist/main/main/services
+    // 需要向上到 dist/main/templates
+    const templatePath = path.join(__dirname, '../../templates', fileName);
     
     if (!fs.existsSync(templatePath)) {
+      console.error('[WebServer] Template not found:', templatePath);
       res.writeHead(404);
       res.end('Template not found');
       return;
@@ -982,7 +985,13 @@ export class WebFileServer extends EventEmitter {
   }
 
   private serveProductionHTML(res: http.ServerResponse) {
-    const reactTemplatePath = path.join(__dirname, '../templates/mobile-web.html');
+    // __dirname 在编译后是 dist/main/main/services
+    // 需要向上到 dist/main/templates
+    const reactTemplatePath = path.join(__dirname, '../../templates/mobile-web.html');
+    
+    console.log('[WebServer] Looking for template at:', reactTemplatePath);
+    console.log('[WebServer] __dirname:', __dirname);
+    console.log('[WebServer] File exists:', fs.existsSync(reactTemplatePath));
     
     if (!fs.existsSync(reactTemplatePath)) {
       res.writeHead(404);

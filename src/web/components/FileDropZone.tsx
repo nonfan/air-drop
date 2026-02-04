@@ -1,7 +1,10 @@
+import { FileThumbnail } from './FileThumbnail';
+
 interface FileItem {
   name: string;
   size: number;
   file: File;
+  thumbnail?: string;
 }
 
 interface TransferProgress {
@@ -73,10 +76,13 @@ export function FileDropZone({
           <div className="space-y-2 flex-1 overflow-y-auto">
             {files.map((fileItem, i) => (
               <div key={i} className="flex items-center gap-3 p-3 bg-tertiary rounded-xl">
-                <svg className="w-5 h-5 text-muted flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
-                  <path d="M13 2v7h7" />
-                </svg>
+                {/* 使用缩略图组件 */}
+                <FileThumbnail
+                  fileName={fileItem.name}
+                  fileType={fileItem.file.type}
+                  thumbnail={fileItem.thumbnail}
+                  size="small"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{fileItem.name}</div>
                   <div className="text-xs text-muted">{formatSize(fileItem.size)}</div>

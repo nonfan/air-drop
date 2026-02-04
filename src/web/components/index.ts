@@ -1,6 +1,7 @@
 // 页面组件
 export { DeviceList } from '../../shared/components/DeviceList';
 export { FileDropZone } from './FileDropZone';
+export { FileThumbnail } from './FileThumbnail';
 export { Header } from './Header';
 export { HistoryList } from '../../shared/components/HistoryList';
 export { HistoryItem } from '../../shared/components/HistoryItem';

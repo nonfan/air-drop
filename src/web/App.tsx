@@ -7,7 +7,7 @@ import {
   DesktopLayout,
   ServerSelector
 } from './components';
-import { TransferPageView, HistoryPageView, SettingsPageView } from './pages';
+import { TransferPageView, HistoryPageView, SettingsPageView, SecuritySettingsPageView } from './pages';
 import { AppContext } from './contexts/AppContext';
 import type { Device, TransferProgress, View } from './types';
 import {
@@ -65,6 +65,7 @@ function AppContent() {
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [showTextModal, setShowTextModal] = useState(false);
   const [isMobile, setIsMobile] = useState(() => isMobileDevice());
+  const [isRefreshing, setIsRefreshing] = useState(false); // 新增：刷新状态
 
   // 使用自定义 Hooks
   const { settings, saveSettings } = useSettings();
@@ -112,17 +113,34 @@ function AppContent() {
   }, []);
 
   // 发送进度回调 - 使用 useCallback 稳定引用
+  // iOS 修复：添加进度过滤，避免闪烁
   const handleSendProgressUpdate = useCallback((progress: { percent: number; currentFile: string; totalSize: number; sentSize: number }) => {
-    setSendProgress(progress);
+    setSendProgress(prev => {
+      // 如果新进度是 100%，但之前不是 100%，则保持显示
+      // 如果新进度小于之前的进度（闪烁），则忽略
+      if (prev && progress.percent < prev.percent && progress.percent !== 100) {
+        console.log(`[Progress Filter] Ignoring backward progress: ${prev.percent}% -> ${progress.percent}%`);
+        return prev;
+      }
+      return progress;
+    });
   }, []);
 
   // 下载进度回调 - 使用 useCallback 稳定引用
+  // iOS 修复：添加进度过滤，避免闪烁
   const handleDownloadProgressUpdate = useCallback((progress: { percent: number; currentFile: string; totalSize: number; sentSize: number }) => {
-    setDownloadProgress({
-      percent: progress.percent,
-      currentFile: progress.currentFile,
-      totalSize: progress.totalSize,
-      sentSize: progress.sentSize
+    setDownloadProgress(prev => {
+      // 如果新进度小于之前的进度（闪烁），则忽略
+      if (prev && progress.percent < prev.percent && progress.percent !== 100) {
+        console.log(`[Progress Filter] Ignoring backward download progress: ${prev.percent}% -> ${progress.percent}%`);
+        return prev;
+      }
+      return {
+        percent: progress.percent,
+        currentFile: progress.currentFile,
+        totalSize: progress.totalSize,
+        sentSize: progress.sentSize
+      };
     });
   }, []);
 
@@ -153,6 +171,34 @@ function AppContent() {
   const saveLastDevice = useCallback((deviceId: string) => {
     setStorageItem(STORAGE_KEYS.LAST_DEVICE, deviceId);
   }, []);
+
+  // 刷新设备列表（重新连接）
+  const handleRefreshDevices = useCallback(() => {
+    if (isRefreshing) return;
+
+    console.log('[App] Refreshing devices...');
+    setIsRefreshing(true);
+
+    // 如果 socket 已连接，先断开再重连
+    if (socket) {
+      socket.disconnect();
+
+      // 延迟重连，给服务器时间处理断开
+      setTimeout(() => {
+        socket.connect();
+        console.log('[App] Socket reconnecting...');
+
+        // 2秒后结束刷新状态
+        setTimeout(() => {
+          setIsRefreshing(false);
+          console.log('[App] Refresh complete');
+        }, 2000);
+      }, 500);
+    } else {
+      // 如果没有 socket，直接刷新页面
+      window.location.reload();
+    }
+  }, [socket, isRefreshing]);
 
   // 文件传输
   const {
@@ -334,6 +380,7 @@ function AppContent() {
     showAllHistory,
     appVersion,
     isMobile,
+    isRefreshing, // 新增：刷新状态
     setMode,
     onSelectDevice: setSelectedDevice,
     onFilesChange: setSelectedFiles,
@@ -345,7 +392,8 @@ function AppContent() {
     onClearHistory: clearHistory,
     onToggleShowAll: () => setShowAllHistory(!showAllHistory),
     onSaveSettings: saveSettings,
-    onShowTextModal: () => setShowTextModal(true)
+    onShowTextModal: () => setShowTextModal(true),
+    onRefreshDevices: handleRefreshDevices // 新增：刷新设备
   };
 
   return (
@@ -365,6 +413,8 @@ function AppContent() {
             <Route path="/" element={<TransferPageView />} />
             <Route path="/history" element={<HistoryPageView />} />
             <Route path="/settings" element={<SettingsPageView />} />
+            {/* 暂时禁用安全设置 - 需要 HTTPS 或 localhost */}
+            {/* <Route path="/settings/security" element={<SecuritySettingsPageView />} /> */}
           </Routes>
         </MobileLayout>
       ) : (
@@ -381,6 +431,8 @@ function AppContent() {
             <Route path="/" element={<TransferPageView />} />
             <Route path="/history" element={<HistoryPageView />} />
             <Route path="/settings" element={<SettingsPageView />} />
+            {/* 暂时禁用安全设置 - 需要 HTTPS 或 localhost */}
+            {/* <Route path="/settings/security" element={<SecuritySettingsPageView />} /> */}
           </Routes>
         </DesktopLayout>
       )}

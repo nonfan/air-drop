@@ -13,6 +13,7 @@ export interface FileItem {
   name: string;
   size: number;
   file: File;
+  thumbnail?: string; // Base64 缩略图（可选）
 }
 
 export interface TransferProgress {

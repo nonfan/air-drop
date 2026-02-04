@@ -33,7 +33,9 @@ export function TransferPageView() {
     onCopyText,
     onDownloadFile,
     onShowTextModal,
-    isMobile
+    isMobile,
+    isRefreshing,
+    onRefreshDevices
   } = useAppContext();
 
   return (
@@ -69,6 +71,8 @@ export function TransferPageView() {
       onDownloadFile={onDownloadFile}
       onShowTextModal={onShowTextModal}
       isMobile={isMobile}
+      isRefreshing={isRefreshing}
+      onRefreshDevices={onRefreshDevices}
     />
   );
 }

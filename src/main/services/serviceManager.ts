@@ -1,30 +1,17 @@
+/**
+ * 服务管理器 - 使用核心架构
+ */
 import { BrowserWindow, Notification } from 'electron';
-import { DeviceDiscovery, Device } from './discovery';
-import { BroadcastDiscovery } from './broadcastDiscovery';
-import { FileTransferServer } from './transfer';
-import { PeerTransferService } from './peerTransfer';
+import { ServiceAdapter } from '../../desktop/adapters/ServiceAdapter';
 import { WebFileServer } from './webServer';
 import { store } from '../store';
 import { addTransferRecord, addTextRecord } from '../utils/history';
 import { flashWindow } from '../window';
-import { NotificationManager } from '../utils/notifications';
-import { EventEmitter } from 'events';
 import path from 'path';
 import { APP_CONFIG } from '../config';
 
-// 通用设备发现接口
-export interface IDeviceDiscovery extends EventEmitter {
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  getDevices(): Device[];
-  setPeerId(peerId: string): void;
-  updatePeerId(peerId: string): void; // 兼容旧代码
-}
-
 export interface Services {
-  discovery: IDeviceDiscovery;
-  transferServer: FileTransferServer;
-  peerTransferService: PeerTransferService;
+  serviceAdapter: ServiceAdapter;
   webServer: WebFileServer;
   webServerURL: string;
 }
@@ -35,265 +22,36 @@ export interface Services {
 export async function initializeServices(
   downloadPath: string,
   deviceName: string,
-  mainWindow: BrowserWindow | null
+  mainWindow: BrowserWindow | null,
+  port: number = 3000
 ): Promise<Services> {
-  // 1. 启动 PeerJS 传输服务
-  const peerTransferService = await initPeerTransferService(
-    downloadPath, 
-    deviceName, 
-    mainWindow
-  );
-  const peerId = peerTransferService.getPeerId();
-  
-  // 2. 启动 WebSocket 传输服务（备用）
-  const { server: transferServer, port } = await initTransferServer(
-    downloadPath, 
-    deviceName, 
-    mainWindow
-  );
-  
-  // 3. 启动设备发现服务
-  const discovery = await initDiscoveryService(
-    deviceName, 
-    port, 
-    peerId, 
-    mainWindow
-  );
-  
-  // 4. 启动 Web 服务器（手机访问）
-  const webServer = await initWebServer(
-    downloadPath, 
-    deviceName, 
-    mainWindow, 
-    discovery
-  );
-  
+  console.log('[ServiceManager] Initializing services...');
+
+  // 1. 初始化核心服务适配器
+  const serviceAdapter = new ServiceAdapter(mainWindow!, deviceName, port, downloadPath);
+  await serviceAdapter.initialize();
+
+  // 2. 初始化 Web 服务器（处理移动端连接）
+  const webServer = new WebFileServer(downloadPath, deviceName);
+  setupWebServerEvents(webServer, mainWindow, downloadPath);
+
+  // 使用配置文件中的端口
+  const { APP_CONFIG } = await import('../config');
+  await webServer.start(APP_CONFIG.PORTS.WEB_SERVER);
+
+  console.log('[ServiceManager] Web server running at:', webServer.getURL());
+  console.log('[ServiceManager] All services initialized successfully');
+
   return {
-    discovery,
-    transferServer,
-    peerTransferService,
+    serviceAdapter,
     webServer,
     webServerURL: webServer.getURL()
   };
 }
 
 /**
- * 初始化 PeerJS 传输服务
+ * 设置 Web 服务器事件监听
  */
-async function initPeerTransferService(
-  downloadPath: string,
-  deviceName: string,
-  mainWindow: BrowserWindow | null
-): Promise<PeerTransferService> {
-  const peerTransferService = new PeerTransferService(
-    downloadPath, 
-    deviceName, 
-    (info) => handleIncomingFile(info, mainWindow, () => {
-      if (store.get('autoAccept')) {
-        peerTransferService.acceptTransfer(info.transferId);
-      }
-    })
-  );
-  
-  setupPeerTransferEvents(peerTransferService, mainWindow);
-  await peerTransferService.start();
-  
-  console.log('[ServiceManager] PeerJS service started with ID:', peerTransferService.getPeerId());
-  return peerTransferService;
-}
-
-/**
- * 初始化 WebSocket 传输服务
- */
-async function initTransferServer(
-  downloadPath: string,
-  deviceName: string,
-  mainWindow: BrowserWindow | null
-): Promise<{ server: FileTransferServer; port: number }> {
-  const transferServer = new FileTransferServer(
-    downloadPath, 
-    deviceName, 
-    (info) => handleIncomingFile(info, mainWindow, () => {
-      if (store.get('autoAccept')) {
-        transferServer.acceptTransfer(info.transferId);
-      }
-    })
-  );
-  
-  setupTransferServerEvents(transferServer, mainWindow);
-  const port = await transferServer.start();
-  
-  console.log('[ServiceManager] Transfer server started on port:', port);
-  return { server: transferServer, port };
-}
-
-/**
- * 初始化设备发现服务
- */
-async function initDiscoveryService(
-  deviceName: string,
-  port: number,
-  peerId: string,
-  mainWindow: BrowserWindow | null
-): Promise<IDeviceDiscovery> {
-  let discovery: IDeviceDiscovery;
-  
-  try {
-    console.log('[ServiceManager] Trying Bonjour discovery...');
-    discovery = new DeviceDiscovery(deviceName, port);
-    discovery.setPeerId(peerId);
-    await discovery.start();
-    console.log('[ServiceManager] Bonjour discovery started successfully');
-  } catch (err) {
-    console.warn('[ServiceManager] Bonjour discovery failed, using broadcast:', err);
-    discovery = new BroadcastDiscovery(deviceName, port);
-    discovery.setPeerId(peerId);
-    await discovery.start();
-    console.log('[ServiceManager] Broadcast discovery started successfully');
-  }
-  
-  return discovery;
-}
-
-/**
- * 初始化 Web 服务器
- */
-async function initWebServer(
-  downloadPath: string,
-  deviceName: string,
-  mainWindow: BrowserWindow | null,
-  discovery: IDeviceDiscovery
-): Promise<WebFileServer> {
-  const webServer = new WebFileServer(downloadPath, deviceName);
-  
-  setupDiscoveryEvents(discovery, mainWindow, webServer);
-  setupWebServerEvents(webServer, mainWindow, downloadPath);
-  
-  // 尝试端口 80，失败则使用 8080
-  try {
-    await webServer.start(80);
-  } catch (err: any) {
-    if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
-      await webServer.start(8080);
-    } else {
-      throw err;
-    }
-  }
-  
-  console.log('[ServiceManager] Web server running at:', webServer.getURL());
-  return webServer;
-}
-
-/**
- * 处理接收文件请求
- */
-function handleIncomingFile(
-  info: { transferId: string; senderName: string; files: any[]; totalSize: number },
-  mainWindow: BrowserWindow | null,
-  onAutoAccept: () => void
-): void {
-  mainWindow?.webContents.send('incoming-file', info);
-  flashWindow(mainWindow);
-  
-  const fileCount = info.files.length;
-  if (fileCount === 1) {
-    NotificationManager.showFileReceived(info.files[0].name, info.senderName, mainWindow);
-  } else {
-    NotificationManager.showFilesReceived(fileCount, info.senderName, mainWindow);
-  }
-  
-  onAutoAccept();
-}
-
-/**
- * 设置 PeerTransfer 事件监听
- */
-function setupPeerTransferEvents(
-  peerTransferService: PeerTransferService,
-  mainWindow: BrowserWindow | null
-) {
-  peerTransferService.on('transfer-progress', (progress) => {
-    mainWindow?.webContents.send('transfer-progress', progress);
-  });
-  
-  peerTransferService.on('transfer-complete', (result) => {
-    mainWindow?.webContents.send('transfer-complete', result);
-    flashWindow(mainWindow);
-    
-    if (result.success && result.files) {
-      for (const file of result.files) {
-        addTransferRecord({
-          fileName: file.name,
-          filePath: file.path,
-          size: file.size,
-          from: result.senderName || '未知设备',
-          type: 'received'
-        }, mainWindow);
-      }
-    }
-  });
-  
-  peerTransferService.on('send-progress', (progress) => {
-    mainWindow?.webContents.send('send-progress', progress);
-  });
-  
-  peerTransferService.on('send-complete', (result) => {
-    mainWindow?.webContents.send('send-complete', result);
-  });
-}
-
-function setupTransferServerEvents(
-  transferServer: FileTransferServer,
-  mainWindow: BrowserWindow | null
-) {
-  transferServer.on('transfer-progress', (progress) => {
-    mainWindow?.webContents.send('transfer-progress', progress);
-  });
-  
-  transferServer.on('transfer-complete', (result) => {
-    mainWindow?.webContents.send('transfer-complete', result);
-    flashWindow(mainWindow);
-    
-    if (result.success && result.files) {
-      for (const file of result.files) {
-        addTransferRecord({
-          fileName: file.name,
-          filePath: file.path,
-          size: file.size,
-          from: result.senderName || '未知设备',
-          type: 'received'
-        }, mainWindow);
-      }
-    }
-  });
-  
-  transferServer.on('send-progress', (progress) => {
-    mainWindow?.webContents.send('send-progress', progress);
-  });
-  
-  transferServer.on('send-complete', (result) => {
-    mainWindow?.webContents.send('send-complete', result);
-  });
-}
-
-function setupDiscoveryEvents(
-  discovery: IDeviceDiscovery,
-  mainWindow: BrowserWindow | null,
-  webServer: WebFileServer
-) {
-  discovery.on('device-found', (device: Device) => {
-    console.log('[ServiceManager] Device found event:', device.name, device.ip);
-    mainWindow?.webContents.send('device-found', device);
-    webServer.updateLANDevice({ ...device, type: 'pc' });
-  });
-  
-  discovery.on('device-lost', (deviceId: string) => {
-    console.log('[ServiceManager] Device lost event:', deviceId);
-    mainWindow?.webContents.send('device-lost', deviceId);
-    webServer.removeLANDevice(deviceId);
-  });
-}
-
 function setupWebServerEvents(
   webServer: WebFileServer,
   mainWindow: BrowserWindow | null,
@@ -330,7 +88,6 @@ function setupWebServerEvents(
       type: 'received'
     }, mainWindow);
     
-    // 文件接收完成通知
     if (store.get('showNotifications')) {
       const notification = new Notification({
         title: `${APP_CONFIG.APP_NAME} - 文件接收完成`,
@@ -339,7 +96,6 @@ function setupWebServerEvents(
       });
       notification.on('click', () => {
         mainWindow?.show();
-        // 可选：打开文件所在文件夹
         if (info.filePath) {
           require('electron').shell.showItemInFolder(info.filePath);
         }
@@ -348,12 +104,10 @@ function setupWebServerEvents(
     }
   });
 
-  // 移动端下载进度同步
   webServer.on('mobile-download-progress', (progress) => {
     mainWindow?.webContents.send('mobile-download-progress', progress);
   });
 
-  // 移动端上传进度同步
   webServer.on('mobile-upload-progress', (progress) => {
     mainWindow?.webContents.send('mobile-upload-progress', progress);
   });
@@ -382,7 +136,11 @@ function setupWebServerEvents(
 
   webServer.on('text-received', (info) => {
     const textRecord = addTextRecord({ text: info.text, from: info.clientName }, mainWindow);
-    mainWindow?.webContents.send('text-received', { ...info, id: textRecord.id, timestamp: textRecord.timestamp });
+    mainWindow?.webContents.send('text-received', { 
+      ...info, 
+      id: textRecord.id, 
+      timestamp: textRecord.timestamp 
+    });
     flashWindow(mainWindow);
     require('electron').clipboard.writeText(info.text);
     
@@ -406,9 +164,14 @@ function setupWebServerEvents(
   });
 }
 
-export function stopAllServices(services: Partial<Services>) {
-  services.discovery?.stop();
-  services.transferServer?.stop();
-  services.peerTransferService?.stop();
+/**
+ * 停止所有服务
+ */
+export async function stopAllServices(services: Partial<Services>) {
+  console.log('[ServiceManager] Stopping services...');
+  
+  await services.serviceAdapter?.cleanup();
   services.webServer?.stop();
+  
+  console.log('[ServiceManager] All services stopped');
 }
