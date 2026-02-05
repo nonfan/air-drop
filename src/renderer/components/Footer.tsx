@@ -16,7 +16,7 @@ export function Footer({ deviceName, version = '1.0.0', variant = 'simple' }: Fo
   if (variant === 'detailed') {
     // 桌面端样式：显示设备名和版本号
     return (
-      <div className="flex-shrink-0 px-6 py-3 border-t border-white/5 bg-secondary/50 backdrop-blur-xl rounded-b-[12px]">
+      <div className="flex-shrink-0 px-6 py-3 border-t border-white/5 bg-transparent rounded-b-[12px]">
         <div className="flex items-center justify-between text-xs text-muted">
           <span>{deviceName || 'Airdrop'}</span>
           <span>v{version}</span>
