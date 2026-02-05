@@ -5,7 +5,7 @@
   "main": "dist/main/main/main.js",
   "scripts": {
     "dev": "tsc -p tsconfig.main.json && set NODE_ENV=development&& electron .",
-    "dev:full": "concurrently \"vite\" \"wait-on http://localhost:5173 && npm run dev\"",
+    "dev:full": "concurrently \"vite\" \"npm run dev\"",
     "dev:web": "vite --config vite.config.web.ts",
     "build": "vite build && tsc -p tsconfig.main.json && vite build --config vite.config.web.ts && node -e \"require('fs').cpSync('dist/web/index.html', 'dist/main/templates/mobile-web.html')\"",
     "start": "npm run build && set NODE_ENV=production&& electron .",
