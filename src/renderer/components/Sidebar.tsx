@@ -9,13 +9,13 @@ interface SidebarProps {
 
 export function Sidebar({ view, settings, onViewChange, onShowQR }: SidebarProps) {
   return (
-    <div className="w-16 bg-secondary border-r border-custom flex flex-col py-3">
+    <div className="w-16 bg-secondary border-r border-custom flex flex-col py-3 rounded-bl-[12px]">
       <div className="flex flex-col gap-1.5 px-2">
         <button
           onClick={() => onViewChange('transfer')}
           className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${view === 'transfer'
-              ? 'bg-accent text-white shadow-lg shadow-accent/20'
-              : 'text-muted hover:bg-hover hover:text-primary'
+            ? 'bg-accent text-white shadow-lg shadow-accent/20'
+            : 'text-muted hover:bg-hover hover:text-primary'
             }`}
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -29,8 +29,8 @@ export function Sidebar({ view, settings, onViewChange, onShowQR }: SidebarProps
         <button
           onClick={() => onViewChange('settings')}
           className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${view === 'settings'
-              ? 'bg-accent text-white shadow-lg shadow-accent/20'
-              : 'text-muted hover:bg-hover hover:text-primary'
+            ? 'bg-accent text-white shadow-lg shadow-accent/20'
+            : 'text-muted hover:bg-hover hover:text-primary'
             }`}
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
