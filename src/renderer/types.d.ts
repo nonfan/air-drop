@@ -91,6 +91,7 @@ declare global {
       acceptTransfer: (transferId: string) => Promise<void>;
       rejectTransfer: (transferId: string) => Promise<void>;
       minimize: () => void;
+      maximize: () => void;
       close: () => void;
       onDeviceFound: (callback: (device: Device) => void) => void;
       onDeviceLost: (callback: (deviceId: string) => void) => void;
