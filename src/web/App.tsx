@@ -64,7 +64,6 @@ function AppContent() {
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [showTextModal, setShowTextModal] = useState(false);
   const [isMobile, setIsMobile] = useState(() => isMobileDevice());
-  const [isRefreshing, setIsRefreshing] = useState(false); // 新增：刷新状态
 
   // 使用自定义 Hooks
   const { settings, saveSettings, initializeSettings } = useSettings();
@@ -182,34 +181,6 @@ function AppContent() {
   const saveLastDevice = useCallback((deviceId: string) => {
     setStorageItem(STORAGE_KEYS.LAST_DEVICE, deviceId);
   }, []);
-
-  // 刷新设备列表（重新连接）
-  const handleRefreshDevices = useCallback(() => {
-    if (isRefreshing) return;
-
-    console.log('[App] Refreshing devices...');
-    setIsRefreshing(true);
-
-    // 如果 socket 已连接，先断开再重连
-    if (socket) {
-      socket.disconnect();
-
-      // 延迟重连，给服务器时间处理断开
-      setTimeout(() => {
-        socket.connect();
-        console.log('[App] Socket reconnecting...');
-
-        // 2秒后结束刷新状态
-        setTimeout(() => {
-          setIsRefreshing(false);
-          console.log('[App] Refresh complete');
-        }, 2000);
-      }, 500);
-    } else {
-      // 如果没有 socket，直接刷新页面
-      window.location.reload();
-    }
-  }, [socket, isRefreshing]);
 
   // 文件传输
   const {
@@ -406,7 +377,6 @@ function AppContent() {
     showAllHistory,
     appVersion,
     isMobile,
-    isRefreshing, // 新增：刷新状态
     setMode,
     onSelectDevice: setSelectedDevice,
     onFilesChange: setSelectedFiles,
@@ -418,8 +388,7 @@ function AppContent() {
     onClearHistory: clearHistory,
     onToggleShowAll: () => setShowAllHistory(!showAllHistory),
     onSaveSettings: saveSettings,
-    onShowTextModal: () => setShowTextModal(true),
-    onRefreshDevices: handleRefreshDevices // 新增：刷新设备
+    onShowTextModal: () => setShowTextModal(true)
   };
 
   return (

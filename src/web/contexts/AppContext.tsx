@@ -26,7 +26,6 @@ export interface AppContextType {
   showAllHistory: boolean;
   appVersion: string;
   isMobile: boolean;
-  isRefreshing: boolean; // 新增：刷新状态
 
   // 方法
   setMode: (mode: 'file' | 'text') => void;
@@ -41,7 +40,6 @@ export interface AppContextType {
   onToggleShowAll: () => void;
   onSaveSettings: (settings: Partial<Settings>) => void;
   onShowTextModal: () => void;
-  onRefreshDevices: () => void; // 新增：刷新设备
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);

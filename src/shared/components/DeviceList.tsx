@@ -12,9 +12,7 @@ interface DeviceListProps {
   onSelectDevice: (id: string) => void;
   onSendToDevice?: (deviceId: string) => void;
   canSend?: boolean;
-  onRefresh?: () => void; // 新增：刷新回调
-  isRefreshing?: boolean; // 新增：刷新状态
-  onManualConnect?: () => void; // 新增：手动连接回调
+  onManualConnect?: () => void;
 }
 
 export function DeviceList({
@@ -23,8 +21,6 @@ export function DeviceList({
   onSelectDevice,
   onSendToDevice,
   canSend = false,
-  onRefresh,
-  isRefreshing = false,
   onManualConnect
 }: DeviceListProps) {
   const handleDeviceClick = (deviceId: string) => {
@@ -50,26 +46,6 @@ export function DeviceList({
         </svg>
         <p className="text-xs font-medium">未发现设备</p>
         <p className="text-[10px] mt-1 opacity-70">请确保设备在同一网络</p>
-
-        {/* 刷新按钮 */}
-        {onRefresh && (
-          <button
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="mt-4 px-4 py-2 bg-accent text-white rounded-lg text-xs font-medium hover:bg-accent-hover active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            <svg
-              className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0118.8-4.3M22 12.5a10 10 0 01-18.8 4.2" />
-            </svg>
-            {isRefreshing ? '刷新中...' : '刷新设备'}
-          </button>
-        )}
 
         {typeof navigator !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent) && (
           <div className="mt-3 p-2 bg-accent/10 border border-accent/30 rounded-lg hidden md:block">

@@ -70,8 +70,6 @@ interface TransferPageProps {
   onDownloadFile: (filePath: string, fileName: string, itemId: string) => void;
   onShowTextModal?: () => void;
   isMobile: boolean;
-  isRefreshing?: boolean; // 新增
-  onRefreshDevices?: () => void; // 新增
 }
 
 export function TransferPage({
@@ -105,9 +103,7 @@ export function TransferPage({
   onCopyText,
   onDownloadFile,
   onShowTextModal,
-  isMobile,
-  isRefreshing,
-  onRefreshDevices
+  isMobile
 }: TransferPageProps) {
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
@@ -318,8 +314,6 @@ export function TransferPage({
                 onSend(deviceId);
               }}
               canSend={selectedFiles.length > 0 || text.trim().length > 0}
-              onRefresh={onRefreshDevices}
-              isRefreshing={isRefreshing}
             />
           </div>
 

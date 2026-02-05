@@ -64,7 +64,6 @@ function App() {
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
   const [downloadFailedIds, setDownloadFailedIds] = useState<Set<string>>(new Set());
   const [downloadProgressMap] = useState<Map<string, { percent: number; receivedSize: number; totalSize: number }>>(new Map());
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useTheme(settings?.theme);
   const { showScrollTop, scrollToTop } = useScroll('#historyContent');
@@ -358,44 +357,6 @@ function App() {
     setTextInput('');
   };
 
-  const handleRefreshDevices = useCallback(async () => {
-    if (isRefreshing) return;
-
-    console.log('[Desktop] Refreshing devices...');
-    setIsRefreshing(true);
-
-    try {
-      // 刷新 PC 设备和移动端设备
-      const [devicesData, mobileClientsData] = await Promise.allSettled([
-        window.windrop.getDevices(),
-        window.windrop.getMobileClients()
-      ]);
-
-      if (devicesData.status === 'fulfilled') {
-        setDevices(prev => [
-          ...prev.filter(d => d.type === 'mobile'),
-          ...devicesData.value.map(d => ({ ...d, type: 'pc' as const }))
-        ]);
-      }
-
-      if (mobileClientsData.status === 'fulfilled') {
-        setDevices(prev => [
-          ...prev.filter(d => d.type === 'pc'),
-          ...mobileClientsData.value.map(m => ({ ...m, type: 'mobile' as const }))
-        ]);
-      }
-
-      console.log('[Desktop] Refresh complete');
-    } catch (error) {
-      console.error('[Desktop] Failed to refresh devices:', error);
-    } finally {
-      // 2秒后结束刷新状态
-      setTimeout(() => {
-        setIsRefreshing(false);
-      }, 2000);
-    }
-  }, [isRefreshing]);
-
   return (
     <div
       className="app"
@@ -500,8 +461,6 @@ function App() {
                     }
                   }}
                   canSend={sendMode === 'file' ? selectedFiles.length > 0 : textInput.trim().length > 0}
-                  onRefresh={handleRefreshDevices}
-                  isRefreshing={isRefreshing}
                 />
               </div>
 
