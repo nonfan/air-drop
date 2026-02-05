@@ -1,22 +1,23 @@
 /**
  * 服务管理器 - 使用核心架构
+ * 支持多种设备发现方式：UDP + Socket.IO
  */
 import { BrowserWindow, Notification } from 'electron';
 import { ServiceAdapter } from '../../desktop/adapters/ServiceAdapter';
 import { WebFileServer } from './webServer';
-import { PeerDiscoveryService } from '../../core/services/discovery/PeerDiscoveryService';
+import { UDPBroadcastService } from './udpBroadcast';
 import { store } from '../store';
 import { addTransferRecord, addTextRecord } from '../utils/history';
 import { flashWindow } from '../window';
 import path from 'path';
 import { APP_CONFIG } from '../config';
-import { networkInterfaces } from 'os';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface Services {
   serviceAdapter: ServiceAdapter;
   webServer: WebFileServer;
   webServerURL: string;
-  peerDiscovery?: PeerDiscoveryService;
+  udpBroadcast: UDPBroadcastService;
 }
 
 /**
@@ -30,11 +31,11 @@ export async function initializeServices(
 ): Promise<Services> {
   console.log('[ServiceManager] Initializing services...');
 
-  // 1. 初始化核心服务适配器
+  // 1. 初始化核心服务适配器（包含 UDP 设备发现）
   const serviceAdapter = new ServiceAdapter(mainWindow!, deviceName, port, downloadPath);
   await serviceAdapter.initialize();
 
-  // 2. 初始化 Web 服务器（处理移动端连接）
+  // 2. 初始化 Web 服务器（处理移动端连接，包含 Socket.IO 设备发现）
   const webServer = new WebFileServer(downloadPath, deviceName);
   setupWebServerEvents(webServer, mainWindow, downloadPath);
 
@@ -43,89 +44,112 @@ export async function initializeServices(
 
   console.log('[ServiceManager] Web server running at:', webServer.getURL());
 
-  // 3. 初始化 PeerJS 设备发现服务
-  let peerDiscovery: PeerDiscoveryService | undefined;
+  // 3. 初始化 UDP 广播服务（桌面端设备发现）
+  const deviceId = uuidv4();
+  const udpBroadcast = new UDPBroadcastService(deviceId, deviceName, APP_CONFIG.PORTS.WEB_SERVER);
+  setupUDPBroadcastEvents(udpBroadcast, webServer, mainWindow);
+  
   try {
-    peerDiscovery = new PeerDiscoveryService();
-    
-    const localIP = getLocalIP();
-    await peerDiscovery.start({
-      name: deviceName,
-      ip: localIP,
-      port: APP_CONFIG.PORTS.WEB_SERVER,
-      type: 'desktop'
-    });
-
-    setupPeerDiscoveryEvents(peerDiscovery, mainWindow);
-    console.log('[ServiceManager] PeerDiscovery started successfully');
+    await udpBroadcast.start();
+    console.log('[ServiceManager] UDP broadcast service started');
   } catch (error) {
-    console.error('[ServiceManager] Failed to start PeerDiscovery:', error);
+    console.warn('[ServiceManager] UDP broadcast failed to start (non-critical):', error);
   }
 
+  console.log('[ServiceManager] Using UDP + Socket.IO for device discovery');
   console.log('[ServiceManager] All services initialized successfully');
 
   return {
     serviceAdapter,
     webServer,
     webServerURL: webServer.getURL(),
-    peerDiscovery
+    udpBroadcast
   };
 }
 
 /**
- * 获取本地 IP 地址
+ * 停止所有服务
  */
-function getLocalIP(): string {
-  const nets = networkInterfaces();
-  const addresses: string[] = [];
+export async function stopAllServices(services: Partial<Services>) {
+  console.log('[ServiceManager] Stopping services...');
   
-  for (const name of Object.keys(nets)) {
-    const interfaces = nets[name];
-    if (!interfaces) continue;
-    
-    for (const net of interfaces) {
-      if (net.internal) continue;
-      const isIPv4 = net.family === 'IPv4' || (net.family as any) === 4;
-      if (isIPv4 && net.address) {
-        addresses.push(net.address);
-      }
-    }
-  }
+  await services.serviceAdapter?.cleanup();
+  services.webServer?.stop();
+  services.udpBroadcast?.stop();
   
-  const preferred = addresses.find(addr => addr.startsWith('192.168.'));
-  if (preferred) return preferred;
-  
-  const fallback = addresses.find(addr => addr.startsWith('10.'));
-  if (fallback) return fallback;
-  
-  return addresses[0] || '127.0.0.1';
+  console.log('[ServiceManager] All services stopped');
 }
 
 /**
- * 设置 PeerDiscovery 事件监听
+ * 设置 UDP 广播事件监听
  */
-function setupPeerDiscoveryEvents(
-  peerDiscovery: PeerDiscoveryService,
+function setupUDPBroadcastEvents(
+  udpBroadcast: UDPBroadcastService,
+  webServer: WebFileServer,
   mainWindow: BrowserWindow | null
 ) {
-  peerDiscovery.on('device-found', (device) => {
-    console.log('[ServiceManager] Device discovered via Peer:', device);
+  udpBroadcast.on('device-found', (device) => {
+    console.log('[ServiceManager] UDP device found:', device.name, device.ip);
+    
+    // 通知 WebServer 更新设备列表
+    webServer.updateLANDevice({
+      id: device.id,
+      name: device.name,
+      ip: device.ip,
+      port: device.port,
+      type: 'pc'
+    });
+    
     // 通知渲染进程
-    mainWindow?.webContents.send('peer-device-found', device);
+    mainWindow?.webContents.send('device-found', {
+      id: device.id,
+      name: device.name,
+      ip: device.ip,
+      port: device.port,
+      type: 'desktop',
+      lastSeen: device.lastSeen
+    });
   });
 
-  peerDiscovery.on('device-updated', (device) => {
-    console.log('[ServiceManager] Device updated via Peer:', device);
-    mainWindow?.webContents.send('peer-device-updated', device);
+  udpBroadcast.on('device-updated', (device) => {
+    console.log('[ServiceManager] UDP device updated:', device.name);
+    
+    // 更新 WebServer 设备列表
+    webServer.updateLANDevice({
+      id: device.id,
+      name: device.name,
+      ip: device.ip,
+      port: device.port,
+      type: 'pc'
+    });
+    
+    // 通知渲染进程
+    mainWindow?.webContents.send('device-updated', {
+      id: device.id,
+      name: device.name,
+      ip: device.ip,
+      port: device.port,
+      type: 'desktop',
+      lastSeen: device.lastSeen
+    });
   });
 
-  peerDiscovery.on('device-lost', (peerId) => {
-    console.log('[ServiceManager] Device lost via Peer:', peerId);
-    mainWindow?.webContents.send('peer-device-lost', peerId);
+  udpBroadcast.on('device-lost', (deviceId) => {
+    console.log('[ServiceManager] UDP device lost:', deviceId);
+    
+    // 从 WebServer 移除设备
+    webServer.removeLANDevice(deviceId);
+    
+    // 通知渲染进程
+    mainWindow?.webContents.send('device-lost', deviceId);
   });
 
-  peerDiscovery.on('error', (error) => {
-    console.error('[ServiceManager] PeerDiscovery error:', error);
+  udpBroadcast.on('error', (error) => {
+    console.warn('[ServiceManager] UDP broadcast error (non-critical):', error);
+  });
+
+  udpBroadcast.on('started', () => {
+    console.log('[ServiceManager] UDP broadcast started successfully');
   });
 }
 
@@ -242,17 +266,4 @@ function setupWebServerEvents(
   webServer.on('download-failed', (info) => {
     mainWindow?.webContents.send('web-download-failed', info);
   });
-}
-
-/**
- * 停止所有服务
- */
-export async function stopAllServices(services: Partial<Services>) {
-  console.log('[ServiceManager] Stopping services...');
-  
-  await services.serviceAdapter?.cleanup();
-  services.webServer?.stop();
-  services.peerDiscovery?.stop();
-  
-  console.log('[ServiceManager] All services stopped');
 }

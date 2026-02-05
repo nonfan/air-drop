@@ -51,23 +51,39 @@ npm run dev:web
 |------|------|
 | `dev.bat` | 开发模式一键启动 |
 | `npm run dev` | 快速启动 Electron |
-| `npm run dev:full` | 自动启动完整开发环境 |
 | `npm run dev:web` | 开发 Web 端 |
 | `npm run build` | 构建完整项目 |
 | `npm start` | 构建并启动 |
 | `npm run dist` | 打包应用 |
 | `npm test` | 运行测试 |
+| `npm run check-ports` | 检查端口配置 |
+| `diagnose.bat` | 诊断开发环境 |
 
 ## 配置
 
 ### 端口配置
-- 主进程配置：`src/main/config.ts`
-- Web 端配置：`src/web/config.ts`
+
+⚠️ **重要**: 修改 Vite 开发服务器端口时，必须同步更新以下文件：
+1. `package.json` - `dev:electron` 脚本中的 wait-on URL
+2. `vite.config.ts` - `server.port` 配置
+3. `src/main/window.ts` - `VITE_DEV_PORT` 常量
+
+**检查端口配置**：
+```bash
+npm run check-ports
+```
+
+详细说明请查看：[端口配置文档](./docs/PORT_CONFIGURATION.md)
 
 ### 当前端口
-- Vite 开发服务器：5173
-- Web 服务器：8888
-- 传输服务器：3001+（自动递增）
+- **Vite 开发服务器**：5173（渲染进程开发）
+- **Web 服务器**：8888（移动端连接）
+- **传输服务器**：3001+（桌面端传输，自动递增）
+
+### 配置文件
+- 主进程配置：`src/main/config.ts`
+- Web 端配置：`src/web/config.ts`
+- 端口配置：`src/config/ports.ts`
 
 ### 修改固定 IP
 编辑 `src/web/config.ts`：

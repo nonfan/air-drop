@@ -33,21 +33,35 @@ export async function createMainWindow(): Promise<BrowserWindow> {
   console.log('[Window] isDev:', isDev);
   
   if (isDev) {
-    const tryPorts = [5173, 5174, 5175];
+    // ⚠️ 端口配置：修改此端口时必须同步更新
+    // 1. package.json - dev:electron 中的 wait-on URL
+    // 2. vite.config.ts - server.port
+    const VITE_DEV_PORT = 5173;
+    const VITE_DEV_URL = `http://localhost:${VITE_DEV_PORT}`;
+    
+    // 等待 Vite 开发服务器启动
+    const maxRetries = 30;
+    const retryDelay = 500;
     let loaded = false;
-    for (const port of tryPorts) {
+    
+    for (let i = 0; i < maxRetries; i++) {
       try {
-        await mainWindow.loadURL(`http://localhost:${port}`);
+        await mainWindow.loadURL(VITE_DEV_URL);
         loaded = true;
-        console.log('[Window] Loaded dev server from port:', port);
+        console.log('[Window] Successfully connected to Vite dev server');
         break;
-      } catch {
-        continue;
+      } catch (error) {
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
       }
     }
+    
     if (!loaded) {
-      console.error('Could not connect to dev server');
+      console.error('[Window] Failed to connect to Vite dev server after', maxRetries, 'attempts');
+      console.error('[Window] Please ensure Vite is running on', VITE_DEV_URL);
     }
+    
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     const htmlPath = path.join(__dirname, '../../renderer/index.html');

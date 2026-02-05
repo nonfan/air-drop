@@ -8,9 +8,10 @@ export interface HistoryItemType {
   fileSize?: number;
   filePath?: string;
   timestamp: number;
-  status: 'success' | 'failed' | 'pending';
+  status: 'success' | 'failed' | 'pending' | 'downloading';  // 新增 downloading 状态
   direction: 'sent' | 'received';
   from?: string;
+  progress?: number;  // 新增：当前进度百分比（0-100）
 }
 
 interface HistoryItemProps {
@@ -143,6 +144,7 @@ function formatTime(timestamp: number): string {
 /**
  * 历史记录单条组件
  * 支持文本消息和文件传输
+ * 支持底部进度条显示（接收文件时）
  * 可用于历史记录列表和首页预览
  */
 export function HistoryItem({
@@ -166,12 +168,24 @@ export function HistoryItem({
   const isCopyFailed = copyFailedId === item.id;
 
   // 文件消息的状态
-  const isDownloading = downloadingId === item.id;
+  const isDownloading = downloadingId === item.id || item.status === 'downloading';
   const isDownloadFailed = downloadFailedIds.has(item.id) || downloadFailedId === item.id;
-  const currentDownloadProgress = downloadProgress?.[item.id] || downloadProgressMap.get(item.id)?.percent || 0;
+
+  // 获取当前下载进度
+  const progressFromMap = downloadProgressMap.get(item.id);
+  const progressFromProp = downloadProgress?.[item.id];
+  const progressFromItem = item.progress;
+  const currentDownloadProgress = progressFromItem || progressFromProp || progressFromMap?.percent || 0;
 
   // 判断是否禁用
   const isDisabled = item.type === 'text' ? isCopyFailed : isDownloadFailed;
+
+  // 判断是否显示进度条
+  const showProgress = item.type === 'file' &&
+    isDownloading &&
+    currentDownloadProgress > 0 &&
+    currentDownloadProgress < 100 &&
+    !compact;
 
   // 点击处理
   const handleClick = () => {
@@ -190,6 +204,7 @@ export function HistoryItem({
     <div className="w-full">
       <div
         className={`relative flex group w-full gap-2 p-3 rounded-xl transition-all
+          ${showProgress ? 'pb-2' : ''}
           ${isDisabled
             ? 'bg-tertiary opacity-60 cursor-not-allowed'
             : 'bg-tertiary hover:bg-white/[0.05] active:scale-[0.98] cursor-pointer'
@@ -269,24 +284,37 @@ export function HistoryItem({
               </span>
             </div>
           )}
+        </div>
+      </div>
 
-          {/* 下载进度条 - 放在卡片底部 */}
-          {item.type === 'file' && isDownloading && currentDownloadProgress > 0 && !compact && (
-            <div className="mt-auto pt-2">
-              <div className="flex items-center justify-between text-xs text-muted mb-1.5">
-                <span>接收中...</span>
-                <span className="font-medium">{currentDownloadProgress}%</span>
-              </div>
-              <div className="w-full h-1.5 bg-background rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent rounded-full transition-all duration-300 ease-out"
-                  style={{ width: `${currentDownloadProgress}%` }}
-                />
-              </div>
+      {/* 进度条 - 独立放在卡片外部底部 */}
+      {showProgress && (
+        <div className="mt-2 px-3 pb-2">
+          <div className="flex items-center justify-between text-xs text-muted mb-1.5">
+            <span className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              接收中...
+            </span>
+            <span className="font-medium tabular-nums">{Math.round(currentDownloadProgress)}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-background rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-accent to-accent/80 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${currentDownloadProgress}%` }}
+            />
+          </div>
+          {progressFromMap && (
+            <div className="flex items-center justify-between text-xs text-muted mt-1">
+              <span>{formatSize(progressFromMap.receivedSize)}</span>
+              <span>/</span>
+              <span>{formatSize(progressFromMap.totalSize)}</span>
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

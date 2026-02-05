@@ -16,8 +16,11 @@ export default defineConfig({
     }
   },
   server: {
-    host: '127.0.0.1',  // 强制使用 IPv4
+    // ⚠️ 端口配置：修改此端口时必须同步更新
+    // 1. package.json - dev:electron 中的 wait-on URL
+    // 2. src/main/window.ts - loadURL 中的端口
     port: 5173,
-    strictPort: true    // 端口被占用时报错，而不是自动换端口
+    strictPort: false,
+    host: 'localhost'  // 使用 localhost 避免权限问题
   }
 })

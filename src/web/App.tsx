@@ -67,7 +67,7 @@ function AppContent() {
 
   // 使用自定义 Hooks
   const { settings, saveSettings, initializeSettings } = useSettings();
-  const { history, addHistoryItem, clearHistory } = useHistory();
+  const { history, addHistoryItem, updateHistoryItem, clearHistory } = useHistory();
 
   // 初始化设备名称（只在首次加载时执行）
   useEffect(() => {
@@ -182,6 +182,36 @@ function AppContent() {
     setStorageItem(STORAGE_KEYS.LAST_DEVICE, deviceId);
   }, []);
 
+  // 创建发送中的 History 记录
+  const handleCreateSendingHistory = useCallback((fileItem: any, itemId: string, targetDeviceName: string) => {
+    const item: HistoryItem = {
+      id: itemId,
+      type: 'file',
+      fileName: fileItem.name,
+      fileSize: fileItem.size,
+      filePath: '',
+      timestamp: Date.now(),
+      status: 'downloading', // 使用 downloading 状态表示发送中
+      direction: 'sent',
+      from: `发送至 ${targetDeviceName}`, // 显示目标设备名称
+      progress: 0
+    };
+    addHistoryItem(item);
+  }, [addHistoryItem]);
+
+  // 更新发送进度
+  const handleUpdateSendingProgress = useCallback((itemId: string, percent: number) => {
+    updateHistoryItem(itemId, { progress: percent });
+  }, [updateHistoryItem]);
+
+  // 完成发送
+  const handleCompleteSendingHistory = useCallback((itemId: string) => {
+    updateHistoryItem(itemId, {
+      status: 'success',
+      progress: 100
+    });
+  }, [updateHistoryItem]);
+
   // 文件传输
   const {
     selectedFiles,
@@ -193,10 +223,14 @@ function AppContent() {
   } = useFileTransfer({
     socket,
     selectedDevice,
+    devices,
     onSaveLastDevice: saveLastDevice,
     onProgressUpdate: handleSendProgressUpdate,
     onComplete: handleSendComplete,
-    onError: handleSendError
+    onError: handleSendError,
+    onCreateSendingHistory: handleCreateSendingHistory,
+    onUpdateSendingProgress: handleUpdateSendingProgress,
+    onCompleteSendingHistory: handleCompleteSendingHistory
   });
 
   // 文件下载
@@ -217,39 +251,18 @@ function AppContent() {
     }
   }, [location.pathname, view]);
 
-  // 视图切换函数
+  // 处理视图切换
   const handleViewChange = useCallback((newView: View) => {
     setView(newView);
-    const pathMap: Record<View, string> = {
-      transfer: '/',
-      history: '/history',
-      settings: '/settings'
-    };
-    navigate(pathMap[newView]);
-  }, [navigate]);
-
-  // 监听窗口大小变化
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(isMobileDevice());
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // 自动选择上次使用的设备
-  useEffect(() => {
-    if (devices.length > 0 && !selectedDevice) {
-      const lastDeviceId = getStorageItem<string | null>(STORAGE_KEYS.LAST_DEVICE, null);
-      if (lastDeviceId) {
-        const deviceExists = devices.find(d => d.id === lastDeviceId);
-        if (deviceExists) {
-          setSelectedDevice(lastDeviceId);
-        }
-      }
+    // 根据视图导航到对应路由
+    if (newView === 'transfer') {
+      navigate('/');
+    } else if (newView === 'history') {
+      navigate('/history');
+    } else if (newView === 'settings') {
+      navigate('/settings');
     }
-  }, [devices, selectedDevice]);
+  }, [navigate]);
 
   // 发送文本
   const handleSendText = useCallback((targetDeviceId?: string) => {

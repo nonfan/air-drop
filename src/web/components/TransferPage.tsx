@@ -320,29 +320,7 @@ export function TransferPage({
           {/* 提示文本 */}
           {/* 已移至标题中显示 */}
 
-          {/* 发送进度 */}
-          {isSending && sendProgress && (
-            <div className="bg-secondary border border-custom rounded-lg p-3">
-              <div className="flex items-center gap-2.5 mb-2">
-                <div className="spinner w-4 h-4"></div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium truncate">{sendProgress.currentFile}</div>
-                  <div className="text-[10px] text-muted mt-0.5">
-                    {sendProgress.totalSize > 0
-                      ? `${formatSize(sendProgress.sentSize || 0)} / ${formatSize(sendProgress.totalSize)}`
-                      : '正在发送...'}
-                  </div>
-                </div>
-                <div className="text-xs font-semibold text-accent">{sendProgress.percent}%</div>
-              </div>
-              <div className="w-full h-1.5 bg-tertiary rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent transition-all duration-300 rounded-full"
-                  style={{ width: `${sendProgress.percent}%` }}
-                />
-              </div>
-            </div>
-          )}
+          {/* 发送进度 - 已移除，进度显示在 History 记录中 */}
 
           {/* 传输记录 - 移动端 */}
           <div className="min-[1024px]:hidden">

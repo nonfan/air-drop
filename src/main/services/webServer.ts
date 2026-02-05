@@ -628,6 +628,14 @@ export class WebFileServer extends EventEmitter {
           console.error(`[shareFile] Error getting file stats:`, error);
         }
         
+        // ⚡ 先发送文件接收开始事件（让客户端预先创建 History 记录）
+        targetClient.socket.emit('file-start-receiving', {
+          fileName,
+          fileSize,
+          from: this.deviceName
+        });
+        console.log(`[File] Sent file-start-receiving to client ${targetClientId}`);
+        
         // 使用相对路径，避免混合内容问题
         const downloadUrl = `/download/${targetClientId}/${id}`;
         
@@ -784,25 +792,32 @@ export class WebFileServer extends EventEmitter {
     };
     this.clients.set(clientId, client);
 
-    // 发送连接成功消息
+    console.log(`[WebServer] Client ${isReconnect ? 'reconnected' : 'connected'}: ${clientId} (${clientName})`);
+
+    // ⚡ 立即发送连接成功消息
     socket.emit('connected', { 
       clientId, 
       deviceName: this.deviceName, 
       appVersion: app.getVersion() 
     });
     
-    // 发送待下载的文件和文本
+    // ⚡ 立即发送设备列表（不等待 get-devices 请求）
+    const devices = this.getDeviceListForMobile(clientId);
+    socket.emit('devices-updated', { devices });
+    console.log(`[WebServer] 立即推送设备列表 (${devices.length} 个设备)`);
+    
+    // ⚡ 立即发送待下载的文件和文本
     const files = this.getFilesForClient(clientId);
     const texts = this.getTextsForClient(clientId);
     if (files.length > 0 || texts.length > 0) {
       socket.emit('files-updated', { files, texts });
+      console.log(`[WebServer] 立即推送文件/文本 (${files.length} 文件, ${texts.length} 文本)`);
     }
-    
-    // 发送设备列表
-    socket.emit('devices-updated', { devices: this.getDeviceListForMobile(clientId) });
 
-    // 总是触发 client-connected 事件，确保 Desktop 端能收到通知
-    this.emit('client-connected', { id: clientId, name: clientName, ip });
+    // ⚡ 立即通知桌面端（触发 mobile-connected 事件）
+    this.emit('client-connected', { id: clientId, name: clientName, model: client.model || '', ip });
+    
+    // 广播设备列表更新
     this.broadcastDeviceList();
 
     // 设置设备名称
@@ -967,7 +982,7 @@ export class WebFileServer extends EventEmitter {
       const currentClient = this.clients.get(clientId);
       if (currentClient && currentClient.socket === socket) {
         this.clients.delete(clientId);
-        this.emit('client-disconnected', { id: clientId, name: clientName, ip });
+        this.emit('client-disconnected', { id: clientId, name: clientName, model: currentClient.model || '', ip });
         this.broadcastDeviceList();
       }
     });

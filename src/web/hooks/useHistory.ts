@@ -25,6 +25,17 @@ export function useHistory() {
     });
   }, []);
 
+  // 更新历史记录项
+  const updateHistoryItem = useCallback((id: string, updates: Partial<HistoryItem>) => {
+    setHistory(prev => {
+      const newHistory = prev.map(item => 
+        item.id === id ? { ...item, ...updates } : item
+      );
+      setStorageItem(STORAGE_KEYS.HISTORY, newHistory);
+      return newHistory;
+    });
+  }, []);
+
   // 清空历史记录
   const clearHistory = useCallback(() => {
     setHistory([]);
@@ -40,6 +51,7 @@ export function useHistory() {
   return {
     history,
     addHistoryItem,
+    updateHistoryItem,
     clearHistory,
     saveHistory
   };

@@ -104,23 +104,6 @@ export function FileDropZone({
           </button>
         </div>
       )}
-
-      {isSending && sendProgress && (
-        <div className="bg-secondary rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">
-              发送中: {sendProgress.currentFile}
-            </span>
-            <span className="text-sm text-muted">{sendProgress.percent}%</span>
-          </div>
-          <div className="h-2 bg-tertiary rounded-full overflow-hidden">
-            <div
-              className="h-full bg-accent transition-all duration-300"
-              style={{ width: `${sendProgress.percent}%` }}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

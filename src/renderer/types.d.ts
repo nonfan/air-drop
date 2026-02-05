@@ -117,6 +117,8 @@ declare global {
       onWebUploadStart: (callback: (info: { name: string; size: number }) => void) => void;
       onWebUploadProgress: (callback: (progress: { name: string; percent: number }) => void) => void;
       onWebUploadComplete: (callback: (info: { name: string; size: number }) => void) => void;
+      onMobileDownloadProgress: (callback: (progress: { fileName: string; percent: number; receivedSize: number; totalSize: number }) => void) => void;
+      onMobileUploadProgress: (callback: (progress: { fileName: string; percent: number; sentSize: number; totalSize: number }) => void) => void;
       // Transfer history
       getTransferHistory: () => Promise<any[]>;
       clearTransferHistory: () => Promise<any[]>;

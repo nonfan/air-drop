@@ -10,14 +10,18 @@ import type { FileItem } from '../types';
 interface UseFileTransferOptions {
   socket: Socket | null;
   selectedDevice: string | null;
+  devices: Array<{ id: string; name: string; model: string; ip: string; type: 'pc' | 'mobile' }>;
   onSaveLastDevice: (deviceId: string) => void;
   onProgressUpdate?: (progress: { percent: number; currentFile: string; totalSize: number; sentSize: number }) => void;
   onComplete?: () => void;
   onError?: () => void;
+  onCreateSendingHistory?: (fileItem: FileItem, itemId: string, targetDeviceName: string) => void;
+  onUpdateSendingProgress?: (itemId: string, percent: number) => void;
+  onCompleteSendingHistory?: (itemId: string) => void;
 }
 
 export function useFileTransfer(options: UseFileTransferOptions) {
-  const { socket, selectedDevice, onSaveLastDevice, onProgressUpdate, onComplete, onError } = options;
+  const { socket, selectedDevice, devices, onSaveLastDevice, onProgressUpdate, onComplete, onError, onCreateSendingHistory, onUpdateSendingProgress, onCompleteSendingHistory } = options;
 
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([]);
   const [isSending, setIsSending] = useState(false);
@@ -69,36 +73,21 @@ export function useFileTransfer(options: UseFileTransferOptions) {
         // 实际文件内容只在读取时（如 FormData.append）才会加载
         const filesArray = Array.from(target.files);
         
-        // 立即添加文件到列表（不等待缩略图）
+        // 立即添加文件到列表（不等待缩略图，不生成缩略图）
         const newFiles = filesArray.map(file => {
           console.log(`[FileSelect] File metadata: ${file.name}, ${file.size} bytes, ${file.type}`);
           return {
             name: file.name,
             size: file.size,
             file, // 保存 File 引用，不读取内容
-            thumbnail: undefined // 缩略图稍后异步生成
+            thumbnail: undefined // 不生成缩略图，避免卡顿
           };
         });
         
         setSelectedFilesWithCleanup(prev => [...prev, ...newFiles]);
         
-        // 异步生成缩略图（不阻塞 UI）
-        filesArray.forEach(async (file, index) => {
-          try {
-            const thumbnail = await generateFileThumbnail(file, 200);
-            if (thumbnail) {
-              console.log(`[FileSelect] Thumbnail generated for: ${file.name}`);
-              // 更新对应文件的缩略图
-              setSelectedFilesWithCleanup(prev => 
-                prev.map(item => 
-                  item.file === file ? { ...item, thumbnail } : item
-                )
-              );
-            }
-          } catch (error) {
-            console.error(`[FileSelect] Failed to generate thumbnail for ${file.name}:`, error);
-          }
-        });
+        // 不再生成缩略图，避免视频文件卡顿
+        console.log('[FileSelect] Files added without thumbnail generation');
       }
       
       // iOS Safari 修复：保持 input 元素在 DOM 中，防止 File 对象失效
@@ -149,12 +138,22 @@ export function useFileTransfer(options: UseFileTransferOptions) {
       files: selectedFiles.map(f => ({ name: f.name, size: f.size, type: f.file.type }))
     });
 
+    // 获取目标设备名称
+    const targetDevice = devices.find(d => d.id === deviceId);
+    const targetDeviceName = targetDevice ? targetDevice.name : '未知设备';
+
     setIsSending(true);
 
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const fileItem = selectedFiles[i];
         console.log(`[SendFiles] Uploading file ${i + 1}/${selectedFiles.length}:`, fileItem.name);
+        
+        // 预先创建 History 记录（发送中状态）
+        const itemId = `sending-${Date.now()}-${i}`;
+        if (onCreateSendingHistory) {
+          onCreateSendingHistory(fileItem, itemId, targetDeviceName);
+        }
         
         const formData = new FormData();
         formData.append('file', fileItem.file, fileItem.name); // 明确指定文件名
@@ -196,14 +195,9 @@ export function useFileTransfer(options: UseFileTransferOptions) {
                 });
               }
               
-              // 同步进度给桌面端（通过 Socket.IO）
-              if (socket && socket.connected) {
-                socket.emit('upload-progress-sync', {
-                  fileName: fileItem.name,
-                  percent,
-                  sentSize: e.loaded,
-                  totalSize: e.total
-                });
+              // 更新 History 记录的进度
+              if (onUpdateSendingProgress) {
+                onUpdateSendingProgress(itemId, percent);
               }
             }
           });
@@ -223,14 +217,9 @@ export function useFileTransfer(options: UseFileTransferOptions) {
                 });
               }
               
-              // 同步 100% 给桌面端
-              if (socket && socket.connected) {
-                socket.emit('upload-progress-sync', {
-                  fileName: fileItem.name,
-                  percent: 100,
-                  sentSize: fileItem.size,
-                  totalSize: fileItem.size
-                });
+              // 更新 History 记录为完成状态
+              if (onCompleteSendingHistory) {
+                onCompleteSendingHistory(itemId);
               }
               
               // 延迟 800ms 让用户看到 100% 完成状态

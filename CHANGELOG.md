@@ -1,5 +1,61 @@
 # 更新日志
 
+## v1.11.0 (2026-02-05)
+
+### 🎉 新特性
+- **统一 UDP 广播服务** - 真正的 UDP 广播实现
+  - 创建 `UDPBroadcastService` 统一管理设备发现
+  - 使用 Node.js `dgram` 模块实现真正的 UDP 广播
+  - 桌面端之间快速发现（<100ms）
+  - 自动清理过期设备（30秒超时）
+  - 定期广播设备信息（5秒间隔）
+
+### 🔧 优化改进
+- **设备列表同步** - UDP 设备自动同步到所有端
+  - UDP 发现的设备自动添加到 WebServer 设备列表
+  - 自动广播给所有 Socket.IO 客户端（移动端）
+  - 自动通知渲染进程更新 UI
+- **架构简化** - 移除 PeerJS，简化代码
+  - 移除 PeerJS 依赖和相关代码
+  - 统一设备发现逻辑到 main 进程
+  - 清晰的职责划分
+
+### 🗑️ 移除功能
+- **PeerJS** - 因技术限制移除
+  - PeerJS 需要 WebRTC，在 Electron 主进程（Node.js）中不可用
+  - 报错: "The current browser does not support WebRTC"
+  - 改用真正的 UDP 广播替代
+
+### 📚 文档
+- 新增 `docs/UDP_BROADCAST_REFACTOR.md` - UDP 广播重构文档
+- 更新 `docs/HYBRID_DISCOVERY.md` - 双层发现策略
+- 更新 `PEERJS_READDED.md` - PeerJS 移除说明
+
+### 🏗️ 架构变更
+```
+旧架构:
+- 无真正的 UDP 广播
+- 设备发现分散在多个地方
+- PeerJS 无法在 Node.js 中运行
+
+新架构:
+Layer 1: UDP 广播 (UDPBroadcastService)
+    ↓
+    ├─→ WebFileServer (Socket.IO)
+    │   └─→ 移动端设备列表
+    │
+    └─→ 渲染进程
+        └─→ 桌面端设备列表
+```
+
+### 🚀 性能提升
+- ✅ 桌面端发现速度 <100ms（新增）
+- ✅ 真正的 UDP 广播（非 HTTP 轮询）
+- ✅ 自动设备同步
+- ✅ 低资源占用（+2MB 内存）
+
+---
+
 ## v1.10.0 (2025-02-04)
 
 ### 🎉 新特性

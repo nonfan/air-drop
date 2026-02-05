@@ -8,8 +8,7 @@ import {
   TextInput,
   HistoryList,
   QRModal,
-  SettingsPage,
-  Footer
+  SettingsPage
 } from './components';
 import { useTheme, useScroll, usePaste } from './hooks';
 import { formatSize } from './utils';
@@ -23,7 +22,7 @@ import type {
   SharedFile,
   ReceivedText
 } from './types';
-import type { HistoryItemType } from '../shared/components';
+import type { HistoryItemType } from '../../shared/components';
 
 type View = 'transfer' | 'settings';
 
@@ -36,8 +35,6 @@ function App() {
   const [incomingTransfer, setIncomingTransfer] = useState<FileTransferInfo | null>(null);
   const [sendProgress, setSendProgress] = useState<TransferProgress | null>(null);
   const [receiveProgress, setReceiveProgress] = useState<TransferProgress | null>(null);
-  const [isSending, setIsSending] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [sendMode, setSendMode] = useState<'file' | 'text'>('file');
   const [textInput, setTextInput] = useState('');
   const [receivedTexts, setReceivedTexts] = useState<ReceivedText[]>([]);
@@ -47,6 +44,7 @@ function App() {
   const [transferHistory, setTransferHistory] = useState<TransferRecord[]>([]);
   const [showQR, setShowQR] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [openedId, setOpenedId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [appVersion, setAppVersion] = useState<string>('');
@@ -212,7 +210,22 @@ function App() {
     window.windrop.onSendProgress(setSendProgress);
     window.windrop.onTransferProgress((progress) => {
       setReceiveProgress(progress);
-      setIsDownloading(true);
+
+      // 通过文件名查找对应的历史记录并更新进度
+      const matchingRecord = transferHistory.find(record =>
+        record.fileName === progress.currentFile &&
+        record.type === 'received'
+      );
+
+      if (matchingRecord) {
+        downloadProgressMap.set(matchingRecord.id, {
+          percent: progress.percent,
+          receivedSize: progress.sentSize,
+          totalSize: progress.totalSize
+        });
+        // 触发重新渲染
+        setTransferHistory(prev => [...prev]);
+      }
     });
     window.windrop.onWebUploadProgress((progress) => {
       // 移动端上传到桌面端的进度
@@ -222,31 +235,25 @@ function App() {
         totalSize: 0,
         sentSize: 0
       });
-      setIsDownloading(true);
+
+      // 通过文件名查找对应的历史记录并更新进度
+      const matchingRecord = transferHistory.find(record =>
+        record.fileName === progress.name &&
+        record.type === 'received'
+      );
+
+      if (matchingRecord) {
+        downloadProgressMap.set(matchingRecord.id, {
+          percent: progress.percent,
+          receivedSize: progress.sentSize || 0,
+          totalSize: progress.size || 0
+        });
+        // 触发重新渲染
+        setTransferHistory(prev => [...prev]);
+      }
     });
     window.windrop.onSendComplete((r) => {
-      setIsSending(false);
       setSendProgress(null);
-
-      // 定期刷新移动端设备列表（每5秒）
-      const refreshInterval = setInterval(async () => {
-        try {
-          const mobileClients = await window.windrop.getMobileClients();
-          setDevices(prev => {
-            // 保留 PC 设备，更新移动端设备
-            const pcDevices = prev.filter(d => d.type === 'pc');
-            const mobileDevices = mobileClients.map(m => ({ ...m, type: 'mobile' as const }));
-            return [...pcDevices, ...mobileDevices];
-          });
-        } catch (error) {
-          console.error('Failed to refresh mobile clients:', error);
-        }
-      }, 5000);
-
-      return () => {
-        clearInterval(refreshInterval);
-      };
-      setIsDownloading(false);
       if (r.success) {
         setSelectedFiles([]);
       } else {
@@ -256,57 +263,58 @@ function App() {
     });
     window.windrop.onTransferComplete(() => {
       setReceiveProgress(null);
-      setIsDownloading(false);
     });
     window.windrop.onWebUploadComplete(() => {
       // 移动端上传完成
       setReceiveProgress(null);
-      setIsDownloading(false);
     });
-    window.windrop.onFileDownloaded((i) => setSharedFiles(prev => prev.filter(f => f.id !== i.id)));
 
-    // 移动端下载进度（可选事件）
-    if (window.windrop.onMobileDownloadProgress) {
-      window.windrop.onMobileDownloadProgress((progress: any) => {
-        // 移动端下载进度
-        console.log(`[Desktop] Mobile download progress: ${progress.fileName} ${progress.percent}%`);
+    // 移动端下载进度
+    window.windrop.onMobileDownloadProgress?.((progress: any) => {
+      console.log(`[Desktop] Mobile download progress: ${progress.fileName} ${progress.percent}%`);
 
-        // 通过文件名查找对应的历史记录
-        const matchingRecord = transferHistory.find(record =>
-          record.fileName === progress.fileName &&
-          record.type === 'sent' // 只匹配发送的文件
-        );
+      const matchingRecord = transferHistory.find(record =>
+        record.fileName === progress.fileName &&
+        record.type === 'sent'
+      );
 
-        if (matchingRecord) {
-          // 更新下载进度 Map（使用历史记录的 ID）
-          downloadProgressMap.set(matchingRecord.id, {
-            percent: progress.percent,
-            receivedSize: progress.receivedSize,
-            totalSize: progress.totalSize
-          });
-          // 触发重新渲染
-          setTransferHistory(prev => [...prev]);
-          console.log(`[Desktop] Updated progress for record ID: ${matchingRecord.id}`);
-        } else {
-          console.warn(`[Desktop] No matching record found for: ${progress.fileName}`);
-        }
-      });
-    }
-
-    // 移动端上传进度（可选事件）
-    if (window.windrop.onMobileUploadProgress) {
-      window.windrop.onMobileUploadProgress((progress: any) => {
-        // 移动端上传进度（显示为桌面端的接收进度）
-        console.log(`[Desktop] Mobile upload progress: ${progress.fileName} ${progress.percent}%`);
-        setReceiveProgress({
+      if (matchingRecord) {
+        downloadProgressMap.set(matchingRecord.id, {
           percent: progress.percent,
-          currentFile: progress.fileName,
-          totalSize: progress.totalSize,
-          sentSize: progress.sentSize
+          receivedSize: progress.receivedSize,
+          totalSize: progress.totalSize
         });
-        setIsDownloading(true);
+        setTransferHistory(prev => [...prev]);
+        console.log(`[Desktop] Updated progress for record ID: ${matchingRecord.id}`);
+      } else {
+        console.warn(`[Desktop] No matching record found for: ${progress.fileName}`);
+      }
+    });
+
+    // 移动端上传进度
+    window.windrop.onMobileUploadProgress?.((progress: any) => {
+      console.log(`[Desktop] Mobile upload progress: ${progress.fileName} ${progress.percent}%`);
+      setReceiveProgress({
+        percent: progress.percent,
+        currentFile: progress.fileName,
+        totalSize: progress.totalSize,
+        sentSize: progress.sentSize
       });
-    }
+
+      const matchingRecord = transferHistory.find(record =>
+        record.fileName === progress.fileName &&
+        record.type === 'received'
+      );
+
+      if (matchingRecord) {
+        downloadProgressMap.set(matchingRecord.id, {
+          percent: progress.percent,
+          receivedSize: progress.sentSize,
+          totalSize: progress.totalSize
+        });
+        setTransferHistory(prev => [...prev]);
+      }
+    });
 
     window.windrop.onUpdateAvailable((info) => {
       setUpdateStatus('available');
@@ -446,13 +454,7 @@ function App() {
                     isDragging={isDragging}
                     selectedFiles={selectedFiles}
                     sharedFiles={sharedFiles}
-                    isSending={isSending}
-                    isDownloading={isDownloading}
-                    sendProgress={sendProgress}
-                    receiveProgress={receiveProgress}
                     devices={devices}
-                    downloadProgressMap={downloadProgressMap}
-                    transferHistory={transferHistory}
                     onSelectFiles={handleSelectFiles}
                     onRemoveFile={(i) => setSelectedFiles(prev => prev.filter((_, idx) => idx !== i))}
                     onClearFiles={() => setSelectedFiles([])}
@@ -474,7 +476,7 @@ function App() {
                 )}
 
                 <DeviceList
-                  devices={devices.map(d => ({ ...d, model: d.model || '' }))}
+                  devices={devices}
                   selectedDevice={selectedDevice}
                   onSelectDevice={(id) => setSelectedDevice(selectedDevice === id ? null : id)}
                   onSendToDevice={(deviceId) => {
@@ -528,17 +530,25 @@ function App() {
                     setTimeout(() => setToast(null), 2000);
                   }
                 }}
-                onDownloadFile={async (filePath, _fileName, itemId) => {
+                onDownloadFile={async (filePath, fileName, itemId) => {
                   try {
                     setDownloadingId(itemId);
                     const success = await window.windrop.showFileInFolder(filePath);
                     setDownloadingId(null);
                     if (success) {
                       setDownloadedIds(prev => new Set(prev).add(itemId));
+                      setOpenedId(itemId);
+                      setTimeout(() => setOpenedId(null), 1500);
+                      setMissingFiles(prev => {
+                        const next = new Set(prev);
+                        next.delete(itemId);
+                        return next;
+                      });
                     } else {
                       setDownloadFailedIds(prev => new Set(prev).add(itemId));
                       setDownloadFailedId(itemId);
                       setTimeout(() => setDownloadFailedId(null), 2000);
+                      setMissingFiles(prev => new Set(prev).add(itemId));
                       setToast('文件已被删除或移动');
                       setTimeout(() => setToast(null), 2000);
                     }
@@ -547,21 +557,13 @@ function App() {
                     setDownloadFailedIds(prev => new Set(prev).add(itemId));
                     setDownloadFailedId(itemId);
                     setTimeout(() => setDownloadFailedId(null), 2000);
+                    setMissingFiles(prev => new Set(prev).add(itemId));
                     setToast('文件已被删除或移动');
                     setTimeout(() => setToast(null), 2000);
                   }
                 }}
               />
             </div>
-          )}
-
-          {/* Footer - 桌面端 */}
-          {view === 'transfer' && (
-            <Footer
-              deviceName={settings?.deviceName}
-              version={appVersion || '1.0.0'}
-              variant="detailed"
-            />
           )}
         </main>
       </div>

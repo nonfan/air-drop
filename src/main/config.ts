@@ -27,9 +27,6 @@ export const APP_CONFIG = {
     // 传输服务器起始端口（会自动递增查找可用端口）
     TRANSFER_SERVER: 3001,
     
-    // PeerJS 信令服务器端口
-    PEER_SERVER: 9000,
-    
     // 开发服务器端口（Vite）
     DEV_SERVER: 5173,
     
@@ -38,33 +35,6 @@ export const APP_CONFIG = {
       HOST: '192.168.0.2',
       PORT: 8888,
     }
-  },
-  
-  // PeerJS 配置
-  PEER_CONFIG: {
-    host: 'localhost',
-    port: 9000,
-    path: '/peerjs',
-    secure: false
-  },
-  
-  // PeerJS 发现服务配置
-  PEER_DISCOVERY: {
-    // 使用公共 PeerServer（跨网段发现）
-    host: 'peerjs-server.com',
-    port: 443,
-    secure: true,
-    
-    // 或使用自建服务器（局域网）
-    // host: '192.168.0.2',
-    // port: 9000,
-    // secure: false,
-    
-    // 广播间隔（毫秒）
-    announceInterval: 10000,
-    
-    // 设备超时时间（毫秒）
-    deviceTimeout: 30000
   }
 } as const;
 

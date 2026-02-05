@@ -68,24 +68,6 @@ export function FileDropZone({
   });
   return (
     <div className="space-y-4">
-      {/* 桌面端传输进度（发送/接收） */}
-      {(isSending || isDownloading) && (sendProgress || receiveProgress) && (
-        <div className="bg-secondary rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">
-              {isSending ? '发送中' : '接收中'}: {(sendProgress || receiveProgress)?.currentFile}
-            </span>
-            <span className="text-sm text-muted">{(sendProgress || receiveProgress)?.percent}%</span>
-          </div>
-          <div className="h-2 bg-tertiary rounded-full overflow-hidden">
-            <div
-              className="h-full bg-accent transition-all duration-300"
-              style={{ width: `${(sendProgress || receiveProgress)?.percent}%` }}
-            />
-          </div>
-        </div>
-      )}
-
       {/* 移动端下载进度 */}
       {mobileDownloadProgress.length > 0 && mobileDownloadProgress.map((progress) => {
         const device = devices.find(d => d.id === progress.targetId);
