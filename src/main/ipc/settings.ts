@@ -10,14 +10,20 @@ export function registerSettingsHandlers(
   _transferServer: () => null, // 已移除
   _peerTransferService: () => null // 已移除
 ) {
-  ipcMain.handle('get-settings', () => ({
-    deviceName: store.get('deviceName'),
-    downloadPath: store.get('downloadPath'),
-    autoAccept: store.get('autoAccept'),
-    showNotifications: store.get('showNotifications'),
-    theme: store.get('theme') || 'system',
-    autoLaunch: store.get('autoLaunch') || false
-  }));
+  ipcMain.handle('get-settings', () => {
+    // 确保返回完整的设置对象，包含所有必需字段
+    const settings = {
+      deviceName: store.get('deviceName'),
+      downloadPath: store.get('downloadPath'),
+      autoAccept: store.get('autoAccept'),
+      showNotifications: store.get('showNotifications'),
+      theme: store.get('theme', 'system'),
+      autoLaunch: store.get('autoLaunch', false)
+    };
+    
+    console.log('[IPC] get-settings:', settings);
+    return settings;
+  });
 
   ipcMain.handle('set-settings', (_e, settings: Partial<StoreSchema>) => {
     if (settings.deviceName) store.set('deviceName', settings.deviceName);

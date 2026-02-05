@@ -119,7 +119,21 @@ function App() {
           window.windrop.getMobileClients()
         ]);
 
-        if (settingsData.status === 'fulfilled') setSettings(settingsData.value);
+        // 确保设置总是有值，即使获取失败也使用默认值
+        if (settingsData.status === 'fulfilled' && settingsData.value) {
+          setSettings(settingsData.value);
+        } else {
+          console.warn('[App] Failed to load settings, using defaults');
+          setSettings({
+            deviceName: 'Desktop',
+            downloadPath: '',
+            autoAccept: false,
+            showNotifications: true,
+            theme: 'system',
+            autoLaunch: false
+          });
+        }
+
         if (webURLData.status === 'fulfilled') setWebURL(webURLData.value);
         if (versionData.status === 'fulfilled') setAppVersion(versionData.value);
         if (historyData.status === 'fulfilled') {
@@ -139,6 +153,15 @@ function App() {
         }
       } catch (error) {
         console.error('Failed to initialize app:', error);
+        // 即使初始化失败，也设置默认设置
+        setSettings({
+          deviceName: 'Desktop',
+          downloadPath: '',
+          autoAccept: false,
+          showNotifications: true,
+          theme: 'system',
+          autoLaunch: false
+        });
       }
     };
 
